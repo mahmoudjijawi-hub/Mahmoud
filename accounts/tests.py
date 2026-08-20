@@ -80,6 +80,28 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response.data["user_type"], "1")
         self.assertEqual(response.data["username"], "ammar")
 
+    def test_cors_allows_arbitrary_localhost_port_in_debug(self):
+        """أصول localhost بأي منفذ تُقبل عبر CORS_ALLOWED_ORIGIN_REGEXES."""
+        from django.conf import settings
+
+        self.assertTrue(settings.CORS_ALLOWED_ORIGIN_REGEXES)
+        response = self.client.post(
+            "/api/token/",
+            {"username": "ammar", "password": "ammar12345ammar"},
+            format="json",
+            HTTP_ORIGIN="http://localhost:5999",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Access-Control-Allow-Origin"], "http://localhost:5999")
+        preflight = self.client.options(
+            "/api/token/",
+            HTTP_ORIGIN="http://127.0.0.1:5999",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="authorization,content-type",
+        )
+        self.assertIn(preflight.status_code, (200, 204))
+        self.assertEqual(preflight["Access-Control-Allow-Origin"], "http://127.0.0.1:5999")
+
     def test_token_rejects_bad_password(self):
         client = APIClient()
         response = client.post(
