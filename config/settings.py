@@ -40,6 +40,11 @@ ALLOWED_HOSTS = [
     for host in env("ALLOWED_HOSTS", default="localhost,127.0.0.1").split(",")
     if host.strip()
 ]
+# في التطوير نوسّع المضيفين الشائعين حتى لا ينكسر التشغيل خلف ngrok أو المنافذ المحلية
+if DEBUG:
+    for _host in ("localhost", "127.0.0.1", "[::1]", "testserver", "0.0.0.0"):
+        if _host not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(_host)
 
 # تطبيقات Django المدمجة والمخصصة حسب الوظيفة
 INSTALLED_APPS = [
@@ -195,22 +200,49 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # مسار لوحة الإدارة العشوائي من البيئة (بدون / في البداية أو النهاية)
 ADMIN_URL = env("ADMIN_URL", default="secret-admin").strip("/") + "/"
 
-# أصول CORS المسموحة فقط — ممنوع CORS_ALLOW_ALL_ORIGINS
+# أصول CORS المسموحة فقط — ممنوع CORS_ALLOW_ALL_ORIGINS في الإنتاج
+_DEFAULT_CORS_ORIGINS = (
+    "http://localhost:3000,http://127.0.0.1:3000,"
+    "http://localhost:3001,http://127.0.0.1:3001,"
+    "http://localhost:4173,http://127.0.0.1:4173,"
+    "http://localhost:5173,http://127.0.0.1:5173,"
+    "http://localhost:5174,http://127.0.0.1:5174,"
+    "http://localhost:8080,http://127.0.0.1:8080,"
+    "http://localhost:4200,http://127.0.0.1:4200,"
+    "http://localhost:5500,http://127.0.0.1:5500"
+)
 CORS_ALLOWED_ORIGINS = [
     origin.strip()
-    for origin in env(
-        "CORS_ALLOWED_ORIGINS",
-        default="http://localhost:3000,http://127.0.0.1:3000",
-    ).split(",")
+    for origin in env("CORS_ALLOWED_ORIGINS", default=_DEFAULT_CORS_ORIGINS).split(",")
     if origin.strip()
 ]
+# عند DEBUG: أي منفذ على localhost/127.0.0.1 مسموح حتى يعمل الفرونت بلا تعديل يدوي
+if DEBUG:
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r"^http://localhost:\d+$",
+        r"^http://127\.0\.0\.1:\d+$",
+        r"^http://\[::1\]:\d+$",
+    ]
+else:
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        pattern.strip()
+        for pattern in env("CORS_ALLOWED_ORIGIN_REGEXES", default="").split(",")
+        if pattern.strip()
+    ]
 CORS_ALLOW_ALL_ORIGINS = False
 # السماح بحمل التوكن من الواجهة الأمامية إن لزم
 CORS_ALLOW_CREDENTIALS = True
+# تأكيد السماح برأس Authorization الذي تعتمد عليه الواجهة بعد تسجيل الدخول
+from corsheaders.defaults import default_headers  # noqa: E402
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "authorization",
+    "content-type",
+]
 
 # الواجهة الأمامية تعتمد JWT: لا نعطّل CSRF عالمياً لأن /admin/ يحتاجه.
 # مسارات API تستخدم JWTAuthentication وليست SessionAuthentication، لذلك لا تُفرض CSRF عليها.
-CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
+CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
 
 # جلسة المدير: 30 دقيقة خمول، وتجديد العداد مع كل طلب
 SESSION_COOKIE_AGE = 30 * 60
