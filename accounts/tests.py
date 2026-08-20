@@ -75,6 +75,10 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("access", response.data)
         self.assertIn("refresh", response.data)
+        # الواجهة تحتاج الدور في الجسم لتوجيه المدير بعد صفحة كلمة المرور
+        self.assertEqual(response.data["role"], "manager")
+        self.assertEqual(response.data["user_type"], "1")
+        self.assertEqual(response.data["username"], "ammar")
 
     def test_token_rejects_bad_password(self):
         client = APIClient()
