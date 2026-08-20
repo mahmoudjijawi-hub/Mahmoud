@@ -5,6 +5,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate
 from django.db import transaction
 from rest_framework import serializers
+from rest_framework.exceptions import APIException
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -13,6 +14,20 @@ from core.fields import FlexibleCharField
 
 # مسجّل محاولات الدخول دون كتابة الرقم المميز أو كلمة المرور
 auth_logger = logging.getLogger("accounts.auth")
+
+
+class LoginError(APIException):
+    """خطأ دخول يعيد detail/code كنصوص مباشرة تفهمها الواجهة."""
+
+    status_code = 400
+
+    def __init__(self, message, code):
+        # dict يُمرَّر كما هو عبر exception_handler دون لفّ كل قيمة بقائمة
+        self.detail = {
+            "detail": message,
+            "code": code,
+            "non_field_errors": [message],
+        }
 
 
 def _client_ip(request):
@@ -26,7 +41,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     """
     POST /api/token/
     - username + password كما في طلب token بالـ Collection (المدير).
-    - أو special_number فقط للأستاذ/الطالب (ميزة البرومبت دون كسر جسم الـ Collection).
+    - أو special_number فقط: أستاذ/طالب → JWT، مدير → توجيه لصفحة كلمة المرور.
     """
 
     username = serializers.CharField(required=False, allow_blank=True, max_length=25)
@@ -51,28 +66,54 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["role"] = user.role
         return token
 
+    def _auth_error(self, message, code):
+        """خطأ موحّد تفهمه الواجهة عبر detail و code و non_field_errors."""
+        raise LoginError(message, code)
+
+    def _token_payload(self, user):
+        """شكل استجابة الدخول الذي تعتمد عليه الواجهة للتوجيه بعد كلمة المرور."""
+        refresh = self.get_token(user)
+        access = str(refresh.access_token)
+        return {
+            "access": access,
+            "refresh": str(refresh),
+            # مرادف شائع لبعض تطبيقات الفرونت التي تقرأ token بدل access
+            "token": access,
+            "role": user.role,
+            "user_type": user.user_type,
+            "username": user.username,
+            "user": {
+                "id": str(user.id),
+                "username": user.username,
+                "role": user.role,
+                "user_type": user.user_type,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+            },
+        }
+
     def validate(self, attrs):
         request = self.context.get("request")
         username = (attrs.get("username") or "").strip()
         password = attrs.get("password") or ""
         special_number = (attrs.get("special_number") or "").strip()
 
-        # مسار الرقم المميز وحده (طالب/أستاذ)
+        # مسار الرقم المميز وحده (توجيه الدور أو دخول أستاذ/طالب)
         if special_number and not (username and password):
             return self._validate_special_number(request, special_number)
 
         # مسار اسم المستخدم وكلمة المرور (المدير) — مطابق للـ Collection
         if not username or not password:
             auth_logger.info("failed_login reason=missing_credentials")
-            raise serializers.ValidationError("يجب إدخال اسم المستخدم وكلمة المرور.")
+            self._auth_error("يجب إدخال اسم المستخدم وكلمة المرور.", "missing_credentials")
 
         user = authenticate(request=request, username=username, password=password)
         if user is None:
             auth_logger.info("failed_login reason=invalid_password")
-            raise serializers.ValidationError("اسم المستخدم أو كلمة المرور غير صحيحة.")
+            self._auth_error("اسم المستخدم أو كلمة المرور غير صحيحة.", "invalid_credentials")
         if not user.is_active:
             auth_logger.info("failed_login reason=inactive")
-            raise serializers.ValidationError("هذا الحساب غير نشط.")
+            self._auth_error("هذا الحساب غير نشط.", "inactive")
 
         # إبطال توكنات المدير السابقة عبر زيادة الإصدار
         if user.role == CustomUser.ROLE_MANAGER:
@@ -83,37 +124,28 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 user_agent=(request.META.get("HTTP_USER_AGENT", "")[:1000] if request else ""),
             )
 
-        refresh = self.get_token(user)
-        # access/refresh كما في الـ Collection، مع role/user_type لتوجيه الواجهة بعد صفحة كلمة المرور
-        return {
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-            "role": user.role,
-            "user_type": user.user_type,
-            "username": user.username,
-        }
+        return self._token_payload(user)
 
     def _validate_special_number(self, request, special_number):
-        """دخول بالرقم المميز مع throttling على مستوى الـ View."""
+        """دخول/توجيه بالرقم المميز مع throttling على مستوى الـ View."""
         # حد طول التوجيه العام 7 للمدير و10 للأستاذ/الطالب يُفحص حسب الدور بعد الجلب
         user = CustomUser.objects.filter(special_number=special_number, is_active=True).first()
         if user is None:
             auth_logger.info("failed_login reason=unknown_special_number")
-            raise serializers.ValidationError("الرقم المميز غير صحيح.")
+            self._auth_error("الرقم المميز غير صحيح.", "unknown_special_number")
         if user.role == CustomUser.ROLE_MANAGER:
-            # المرحلة الأولى فقط: لا نُصدر JWT قبل اسم المستخدم وكلمة المرور
-            raise serializers.ValidationError(
-                "هذا رقم مدير. الرجاء تسجيل الدخول باسم المستخدم وكلمة المرور."
-            )
-        refresh = self.get_token(user)
-        # نفس شكل الاستجابة للأستاذ/الطالب حتى تعرف الواجهة الوجهة دون فك JWT
-        return {
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-            "role": user.role,
-            "user_type": user.user_type,
-            "username": user.username,
-        }
+            # مهم للفرونت: 200 وليس 400 حتى تنتقل الواجهة لصفحة كلمة مرور المدير
+            auth_logger.info("manager_routing special_number_ok")
+            return {
+                "requires_password": True,
+                "role": user.role,
+                "user_type": user.user_type,
+                "username": user.username,
+                "special_number": special_number,
+                "detail": "رقم مدير صحيح. أدخل اسم المستخدم وكلمة المرور.",
+                "code": "manager_password_required",
+            }
+        return self._token_payload(user)
 
 
 class ManagerSerializer(serializers.ModelSerializer):
