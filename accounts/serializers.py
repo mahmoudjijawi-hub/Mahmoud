@@ -84,9 +84,13 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             )
 
         refresh = self.get_token(user)
+        # access/refresh كما في الـ Collection، مع role/user_type لتوجيه الواجهة بعد صفحة كلمة المرور
         return {
             "access": str(refresh.access_token),
             "refresh": str(refresh),
+            "role": user.role,
+            "user_type": user.user_type,
+            "username": user.username,
         }
 
     def _validate_special_number(self, request, special_number):
@@ -102,9 +106,13 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 "هذا رقم مدير. الرجاء تسجيل الدخول باسم المستخدم وكلمة المرور."
             )
         refresh = self.get_token(user)
+        # نفس شكل الاستجابة للأستاذ/الطالب حتى تعرف الواجهة الوجهة دون فك JWT
         return {
             "access": str(refresh.access_token),
             "refresh": str(refresh),
+            "role": user.role,
+            "user_type": user.user_type,
+            "username": user.username,
         }
 
 

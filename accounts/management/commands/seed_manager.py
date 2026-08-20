@@ -37,13 +37,17 @@ class Command(BaseCommand):
             user.save()
             self.stdout.write(self.style.SUCCESS("تم إنشاء مستخدم المدير الأولي."))
         else:
-            # إن زُرع المستخدم بالهجرة بكلمة مرور غير صالحة نضبطها من البيئة
-            if not user.has_usable_password():
-                user.set_password(password)
-                user.save(update_fields=["password"])
-                self.stdout.write(self.style.SUCCESS("تم ضبط كلمة مرور المدير الأولي."))
+            # نزامن كلمة المرور واسم المستخدم من .env حتى تطابق الواجهة/البوستمان بعد أي إعادة زرع
+            changed = False
+            if username and user.username != username:
+                user.username = username
+                changed = True
+            user.set_password(password)
+            user.save()
+            if changed:
+                self.stdout.write(self.style.SUCCESS("تم تحديث اسم مستخدم وكلمة مرور المدير من البيئة."))
             else:
-                self.stdout.write("مستخدم المدير موجود مسبقاً — لم يُغيَّر.")
+                self.stdout.write(self.style.SUCCESS("تم مزامنة كلمة مرور المدير من البيئة."))
 
         Manager.objects.get_or_create(
             user=user,

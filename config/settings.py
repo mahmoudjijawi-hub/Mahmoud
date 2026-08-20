@@ -284,7 +284,8 @@ SIMPLE_JWT = {
 # بيانات المدير الأولي من البيئة — ليست hardcoded
 ADMIN_SPECIAL_NUMBER = env("ADMIN_SPECIAL_NUMBER", default="7788990")
 ADMIN_USERNAME = env("ADMIN_USERNAME", default="ammar")
-ADMIN_PASSWORD = env("ADMIN_PASSWORD", default="change-this-password")
+# افتراضي مطابق لطلب token في الـ Postman Collection
+ADMIN_PASSWORD = env("ADMIN_PASSWORD", default="ammar12345ammar")
 ADMIN_FIRST_NAME = env("ADMIN_FIRST_NAME", default="مدير")
 ADMIN_LAST_NAME = env("ADMIN_LAST_NAME", default="المعهد")
 SUBSCRIPTION_EXPIRY_DATE = env("SUBSCRIPTION_EXPIRY_DATE", default="2027-12-31")
