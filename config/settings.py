@@ -1,0 +1,324 @@
+"""
+إعدادات منصة المعاهد.
+كل القيم الحساسة تُقرأ من ملف .env عبر django-environ — لا تُكتب أسراراً هنا.
+"""
+# مسار الملفات لحساب BASE_DIR
+from pathlib import Path
+# قراءة متغيرات البيئة من .env
+import environ
+# التعامل مع قيم النطاق الفارغة لكوكي الجلسة
+import os
+
+# جذر المشروع (المجلد الذي فيه manage.py)
+BASE_DIR = Path(__file__).resolve().parent.parent
+# ضمان وجود مجلد السجلات قبل إعداد FileHandler
+(BASE_DIR / "logs").mkdir(exist_ok=True)
+
+# تهيئة مكتبة environ
+env = environ.Env(
+    # القيمة الافتراضية لوضع التصحيح: مفعّل محلياً
+    DEBUG=(bool, True),
+    # القيمة الافتراضية لـ HTTPS: معطّل حتى تركيب شهادة SSL
+    IS_HTTPS=(bool, False),
+)
+
+# قراءة ملف .env إن وُجد بجانب manage.py
+environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
+
+# مفتاح التوقيع — إلزامي من البيئة
+SECRET_KEY = env("SECRET_KEY", default="dev-only-insecure-key-change-me")
+
+# وضع التصحيح: True محلياً و False في الإنتاج
+DEBUG = env("DEBUG")
+
+# هل السيرفر خلف HTTPS فعلياً؟ يتحكم بكوكيز الجلسة الآمنة
+IS_HTTPS = env("IS_HTTPS")
+
+# المضيفون المسموحون — قائمة مفصولة بفاصلة في البيئة
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in env("ALLOWED_HOSTS", default="localhost,127.0.0.1").split(",")
+    if host.strip()
+]
+
+# تطبيقات Django المدمجة والمخصصة حسب الوظيفة
+INSTALLED_APPS = [
+    # لوحة الإدارة الجاهزة لكل معهد
+    "django.contrib.admin",
+    # إطار المصادقة والصلاحيات
+    "django.contrib.auth",
+    # أنواع المحتوى المستخدمة مع الصلاحيات
+    "django.contrib.contenttypes",
+    # جلسات المستخدمين (لا سيما /admin/)
+    "django.contrib.sessions",
+    # رسائل الإطار
+    "django.contrib.messages",
+    # الملفات الثابتة
+    "django.contrib.staticfiles",
+    # إطار REST
+    "rest_framework",
+    # JWT مع قائمة سوداء لإبطال التوكن
+    "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
+    # CORS لأصول الواجهة الأمامية المحددة فقط
+    "corsheaders",
+    # تطبيقات المنصة
+    "core",
+    "accounts",
+    "academics",
+    "attendance",
+    "grades",
+    "schedule",
+    "payments",
+]
+
+# سلسلة الوسطاء بالترتيب المطلوب أمنياً
+MIDDLEWARE = [
+    # أمان Django الأساسي (HSTS و XSS headers حسب الإعدادات)
+    "django.middleware.security.SecurityMiddleware",
+    # CORS قبل CommonMiddleware حتى تُعالَج preflight
+    "corsheaders.middleware.CorsMiddleware",
+    # الجلسات قبل المصادقة
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    # معالجة عامة للطلبات
+    "django.middleware.common.CommonMiddleware",
+    # حماية CSRF لجلسات /admin/ والنماذج
+    "django.middleware.csrf.CsrfViewMiddleware",
+    # ربط request.user
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # فحص اشتراك المعهد قبل أي مسار محمي
+    "core.middleware.SubscriptionMiddleware",
+    # جلسة مدير واحدة نشطة + مهلة الخمول تُدار بإعدادات الجلسة
+    "core.middleware.SingleManagerSessionMiddleware",
+    # رسائل الإطار
+    "django.contrib.messages.middleware.MessageMiddleware",
+    # منع النقر داخل iframe (clickjacking)
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+]
+
+# جذر روابط المشروع
+ROOT_URLCONF = "config.urls"
+
+# قوالب Django Admin والقوالب المخصصة إن وُجدت
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+            ],
+        },
+    },
+]
+
+# مدخل WSGI
+WSGI_APPLICATION = "config.wsgi.application"
+
+# قاعدة البيانات: sqlite محلياً أو PostgreSQL من البيئة
+_db_engine = env("DB_ENGINE", default="django.db.backends.sqlite3")
+if _db_engine == "django.db.backends.sqlite3":
+    # مسار ملف sqlite داخل جذر المشروع
+    DATABASES = {
+        "default": {
+            "ENGINE": _db_engine,
+            "NAME": BASE_DIR / env("DB_NAME", default="db.sqlite3"),
+        }
+    }
+else:
+    # PostgreSQL لكل معهد (قاعدة مستقلة لكل نشرة)
+    DATABASES = {
+        "default": {
+            "ENGINE": _db_engine,
+            "NAME": env("DB_NAME"),
+            "USER": env("DB_USER"),
+            "PASSWORD": env("DB_PASSWORD"),
+            "HOST": env("DB_HOST", default="localhost"),
+            "PORT": env("DB_PORT", default="5432"),
+        }
+    }
+
+# نموذج المستخدم المخصص (UUID + أدوار)
+AUTH_USER_MODEL = "accounts.CustomUser"
+
+# مدققو كلمة المرور الافتراضيون
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
+# Argon2 أولاً إن توفّر argon2-cffi، وإلا PBKDF2 حتى لا يتعطل التشغيل على ويندوز بدون عجلات جاهزة
+try:
+    import argon2  # noqa: F401
+
+    PASSWORD_HASHERS = [
+        "django.contrib.auth.hashers.Argon2PasswordHasher",
+        "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+        "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+        "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
+        "django.contrib.auth.hashers.ScryptPasswordHasher",
+    ]
+except ImportError:
+    PASSWORD_HASHERS = [
+        "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+        "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+        "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
+        "django.contrib.auth.hashers.ScryptPasswordHasher",
+    ]
+
+# اللغة العربية للمنصة
+LANGUAGE_CODE = "ar"
+# توقيت سوريا لأن بيانات الأمثلة من اللاذقية
+TIME_ZONE = "Asia/Damascus"
+# تفعيل الترجمة
+USE_I18N = True
+# تخزين التواريخ بـ UTC وعرضها حسب TIME_ZONE
+USE_TZ = True
+
+# الملفات الثابتة المجمّعة للإنتاج
+STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# الملفات المرفوعة (السير الذاتية) خارج المسار العام قدر الإمكان
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+# المفتاح الافتراضي للحقول التلقائية
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# مسار لوحة الإدارة العشوائي من البيئة (بدون / في البداية أو النهاية)
+ADMIN_URL = env("ADMIN_URL", default="secret-admin").strip("/") + "/"
+
+# أصول CORS المسموحة فقط — ممنوع CORS_ALLOW_ALL_ORIGINS
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in env(
+        "CORS_ALLOWED_ORIGINS",
+        default="http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin.strip()
+]
+CORS_ALLOW_ALL_ORIGINS = False
+# السماح بحمل التوكن من الواجهة الأمامية إن لزم
+CORS_ALLOW_CREDENTIALS = True
+
+# الواجهة الأمامية تعتمد JWT: لا نعطّل CSRF عالمياً لأن /admin/ يحتاجه.
+# مسارات API تستخدم JWTAuthentication وليست SessionAuthentication، لذلك لا تُفرض CSRF عليها.
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
+
+# جلسة المدير: 30 دقيقة خمول، وتجديد العداد مع كل طلب
+SESSION_COOKIE_AGE = 30 * 60
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+# كوكي آمن فقط عند HTTPS الفعلي لتفادي حلقة إعادة توجيه /admin/ على HTTP
+SESSION_COOKIE_SECURE = IS_HTTPS
+CSRF_COOKIE_SECURE = IS_HTTPS
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+# نطاق الكوكي: None محلياً، أو النطاق الفعلي لكل معهد من البيئة
+_session_domain = env("SESSION_COOKIE_DOMAIN", default="").strip()
+SESSION_COOKIE_DOMAIN = _session_domain or None
+
+# إعدادات الإنتاج الأمنية — تُفعَّل عند DEBUG=False
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+SECURE_BROWSER_XSS_FILTER = True
+if not DEBUG and IS_HTTPS:
+    # إعادة توجيه HTTP إلى HTTPS في الإنتاج فقط بعد SSL
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+else:
+    # التطوير المحلي على HTTP: لا إعادة توجيه ولا HSTS
+    SECURE_SSL_REDIRECT = False
+    SECURE_HSTS_SECONDS = 0
+
+# إعدادات REST Framework
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        # JWT هو أسلوب المصادقة للـ API (بدون Session على مسارات API)
+        "accounts.authentication.VersionedJWTAuthentication",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticated",
+    ),
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "60/minute",
+        "user": "300/minute",
+        "login": "5/minute",
+        "special_number": "5/minute",
+        "payments": "20/minute",
+    },
+    "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",
+    "DEFAULT_RENDERER_CLASSES": (
+        "rest_framework.renderers.JSONRenderer",
+    ),
+}
+
+# JWT: صلاحية قصيرة للوصول وإمكانية إبطال التحديث
+from datetime import timedelta  # noqa: E402
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
+    "TOKEN_OBTAIN_SERIALIZER": "accounts.serializers.CustomTokenObtainPairSerializer",
+}
+
+# بيانات المدير الأولي من البيئة — ليست hardcoded
+ADMIN_SPECIAL_NUMBER = env("ADMIN_SPECIAL_NUMBER", default="7788990")
+ADMIN_USERNAME = env("ADMIN_USERNAME", default="ammar")
+ADMIN_PASSWORD = env("ADMIN_PASSWORD", default="change-this-password")
+ADMIN_FIRST_NAME = env("ADMIN_FIRST_NAME", default="مدير")
+ADMIN_LAST_NAME = env("ADMIN_LAST_NAME", default="المعهد")
+SUBSCRIPTION_EXPIRY_DATE = env("SUBSCRIPTION_EXPIRY_DATE", default="2027-12-31")
+
+# حد رفع السيرة الذاتية بالبايت (5 ميغابايت)
+MAX_CV_UPLOAD_BYTES = 5 * 1024 * 1024
+
+# تسجيل محاولات الدخول الفاشلة دون كتابة الرقم المميز أو كلمة المرور
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {
+            "format": "{levelname} {asctime} {name} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+        "file": {
+            "class": "logging.FileHandler",
+            "filename": BASE_DIR / "logs" / "auth.log",
+            "formatter": "simple",
+            "encoding": "utf-8",
+        },
+    },
+    "loggers": {
+        "accounts.auth": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}

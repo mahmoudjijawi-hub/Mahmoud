@@ -1,0 +1,78 @@
+# منصة المعاهد — Backend Django + DRF
+
+منصة إدارة معاهد تعليمية (واجهة برمجية فقط حالياً) بالعربية. الـ API مطابقة لملف Postman Collection المرفق.
+
+## التشغيل المحلي
+
+1. ثبّت Python 3.12+ وأنشئ بيئة افتراضية:
+
+```bash
+python -m venv .venv
+# Windows (مثبّت Python الرسمي)
+.venv\Scripts\Activate.ps1
+# Windows (هذه النسخة مبنية بـ MSYS وقد يكون المفسّر في .venv\bin\python.exe)
+.venv\bin\python.exe manage.py runserver
+# Linux / macOS
+source .venv/bin/activate
+```
+
+2. ثبّت المتطلبات:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. انسخ متغيرات البيئة:
+
+```bash
+cp .env.example .env
+```
+
+عدّل `.env` (خصوصاً `SECRET_KEY` وبيانات المدير و`ADMIN_URL`).
+
+4. طبّق الهجرات وازرع المدير الأولي:
+
+```bash
+python manage.py migrate
+python manage.py seed_manager
+python manage.py createsuperuser
+```
+
+`createsuperuser` ينشئ حساب لوحة الإدارة وهو **منفصل** عن مدير المعهد الذي يدخل عبر `/api/token/`.
+
+بعد `migrate` شغّل `seed_manager` حتى تُضبط كلمة مرور المدير الأولي (الهجرة تنشئ الحساب، والأمر يضبط كلمة المرور من `.env`).
+
+على الإنتاج (Linux) ثبّت أيضاً `argon2-cffi` و`psycopg2-binary` و`gunicorn` من `requirements.txt`. إن تعذّر بناء `argon2-cffi` على ويندوز محلياً فالمنصة تعمل بـ PBKDF2 تلقائياً.
+
+5. شغّل خادم التطوير:
+
+```bash
+python manage.py runserver
+```
+
+القاعدة الافتراضية محلياً هي SQLite. للإنتاج استخدم PostgreSQL عبر متغيرات `DB_*` في `.env`.
+
+## المصادقة
+
+- المدير: `POST /api/token/` بالجسم `{"username": "...", "password": "..."}` كما في الـ Collection.
+- الأستاذ/الطالب: `POST /api/token/` بالجسم `{"special_number": "..."}` فقط.
+- التحديث: `POST /api/token/refresh/` بالجسم `{"refresh": "..."}`.
+- الرأس: `Authorization: Bearer <access>`.
+
+مدة صلاحية توكن الوصول 15 دقيقة. توكن التحديث يُدار مع القائمة السوداء.
+
+## ملاحظات أمنية مهمة
+
+- لا تفعّل `IS_HTTPS=True` قبل تركيب شهادة SSL، وإلا لن تُحفظ كوكيز جلسة `/admin/` على HTTP وستظهر حلقة إعادة توجيه.
+- مسار لوحة الإدارة يأتي من `ADMIN_URL` وليس `/admin/` الافتراضي.
+- الملفات المرفوعة للسيرة تُخزَّن تحت `media/private/cvs/` وتُنزَّل عبر مسار محمي للمدير.
+
+## الاختبارات
+
+```bash
+python manage.py test
+```
+
+## النشر
+
+انظر `DEPLOYMENT.md` وسكربت `deploy.sh` (gunicorn بدون Docker).

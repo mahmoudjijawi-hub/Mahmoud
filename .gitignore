@@ -1,0 +1,26 @@
+# بيئة بايثون والملفات المؤقتة
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# أسرار وإعدادات محلية
+.env
+*.log
+logs/
+
+# قاعدة البيانات المحلية والملفات المرفوعة
+db.sqlite3
+media/
+staticfiles/
+
+# أدوات التطوير
+.idea/
+.vscode/
+.DS_Store
+*.swp
