@@ -30,7 +30,7 @@ cp .env.example .env
 
 عدّل `.env` (خصوصاً `SECRET_KEY` وبيانات المدير و`ADMIN_URL`).
 
-عند التطوير المحلي مع `DEBUG=True` يُسمح تلقائياً بأي منفذ للفرونت على `localhost` / `127.0.0.1` (CORS). في الإنتاج ضع نطاق الفرونت صراحة في `CORS_ALLOWED_ORIGINS`.
+عند التطوير المحلي يُفضّل `CORS_ALLOW_ALL_ORIGINS=True` حتى يعمل الفرونت من أي عنوان/منفذ فوراً. في الإنتاج عطّله وحدد `CORS_ALLOWED_ORIGINS` بنطاق الفرونت فقط.
 
 بيانات المدير الافتراضية المطابقة للـ Postman: `ammar` / `ammar12345ammar` (بعد `seed_manager`).
 
