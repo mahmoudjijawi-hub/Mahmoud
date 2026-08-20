@@ -58,8 +58,10 @@ python manage.py runserver
 
 ## المصادقة
 
-- المدير: `POST /api/token/` بالجسم `{"username": "...", "password": "..."}` كما في الـ Collection.
-- الأستاذ/الطالب: `POST /api/token/` بالجسم `{"special_number": "..."}` فقط.
+- المدير (خطوتان):
+  1. `POST /api/token/` بـ `{"special_number": "7788990"}` → `200` مع `requires_password: true` و`role: "manager"` (بدون توكن) — للانتقال لصفحة كلمة المرور.
+  2. `POST /api/token/` بـ `{"username": "ammar", "password": "ammar12345ammar"}` → `200` مع `access`/`refresh`/`token`/`role`/`user`.
+- الأستاذ/الطالب: `POST /api/token/` بالجسم `{"special_number": "..."}` فقط → توكن مباشرة.
 - التحديث: `POST /api/token/refresh/` بالجسم `{"refresh": "..."}`.
 - الرأس: `Authorization: Bearer <access>`.
 

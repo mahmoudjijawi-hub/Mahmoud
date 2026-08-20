@@ -79,6 +79,22 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response.data["role"], "manager")
         self.assertEqual(response.data["user_type"], "1")
         self.assertEqual(response.data["username"], "ammar")
+        self.assertEqual(response.data["token"], response.data["access"])
+        self.assertEqual(response.data["user"]["role"], "manager")
+
+    def test_manager_special_number_routes_to_password_page(self):
+        """الرقم المميز للمدير يعيد 200 مع requires_password حتى ينتقل الفرونت لصفحة المرور."""
+        client = APIClient()
+        response = client.post(
+            "/api/token/",
+            {"special_number": "7788990"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["requires_password"])
+        self.assertEqual(response.data["role"], "manager")
+        self.assertEqual(response.data["code"], "manager_password_required")
+        self.assertNotIn("access", response.data)
 
     def test_cors_allows_arbitrary_localhost_port_in_debug(self):
         """أصول localhost بأي منفذ تُقبل عبر CORS_ALLOWED_ORIGIN_REGEXES."""
@@ -125,6 +141,8 @@ class PostmanAPITests(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["code"], "invalid_credentials")
+        self.assertIn("detail", response.data)
 
     def test_api_for_manager(self):
         """طلب api for manager: GET /api/managers/"""

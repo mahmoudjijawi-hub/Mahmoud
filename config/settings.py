@@ -40,11 +40,9 @@ ALLOWED_HOSTS = [
     for host in env("ALLOWED_HOSTS", default="localhost,127.0.0.1").split(",")
     if host.strip()
 ]
-# في التطوير نوسّع المضيفين الشائعين حتى لا ينكسر التشغيل خلف ngrok أو المنافذ المحلية
+# في التطوير: اقبل أي Host (ngrok وغيره) حتى لا يفشل الدخول بـ DisallowedHost صامت
 if DEBUG:
-    for _host in ("localhost", "127.0.0.1", "[::1]", "testserver", "0.0.0.0"):
-        if _host not in ALLOWED_HOSTS:
-            ALLOWED_HOSTS.append(_host)
+    ALLOWED_HOSTS = ["*"]
 
 # تطبيقات Django المدمجة والمخصصة حسب الوظيفة
 INSTALLED_APPS = [
@@ -289,10 +287,11 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.UserRateThrottle",
     ),
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "60/minute",
-        "user": "300/minute",
-        "login": "5/minute",
-        "special_number": "5/minute",
+        # حدود أوضح للتطوير حتى لا يُحسب فشل الدخول كـ «لا يستطيع الدخول»
+        "anon": "120/minute" if DEBUG else "60/minute",
+        "user": "600/minute" if DEBUG else "300/minute",
+        "login": "30/minute" if DEBUG else "5/minute",
+        "special_number": "30/minute" if DEBUG else "5/minute",
         "payments": "20/minute",
     },
     "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",

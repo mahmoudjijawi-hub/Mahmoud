@@ -3,6 +3,7 @@ from rest_framework import viewsets, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework.exceptions import Throttled
 
 from accounts.models import Manager
 from accounts.serializers import CustomTokenObtainPairSerializer, ManagerSerializer
@@ -17,6 +18,13 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
     throttle_classes = (LoginRateThrottle, SpecialNumberRateThrottle)
     throttle_scope = "login"
+
+    def throttled(self, request, wait):
+        # رسالة عربية واضحة بدل نص DRF الإنجليزي عندما يُحسب الحد
+        raise Throttled(
+            wait=wait,
+            detail="تم تجاوز عدد محاولات الدخول. انتظر قليلاً ثم أعد المحاولة.",
+        )
 
 
 class ManagerViewSet(viewsets.ModelViewSet):
