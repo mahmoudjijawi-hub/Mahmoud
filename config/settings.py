@@ -229,7 +229,9 @@ else:
         for pattern in env("CORS_ALLOWED_ORIGIN_REGEXES", default="").split(",")
         if pattern.strip()
     ]
-CORS_ALLOW_ALL_ORIGINS = False
+# True = أي أصل فرونت يُقبل (مناسب للتطوير وحل مشاكل CORS فوراً).
+# في الإنتاج ضع CORS_ALLOW_ALL_ORIGINS=False وحدد CORS_ALLOWED_ORIGINS صراحة.
+CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=True)
 # السماح بحمل التوكن من الواجهة الأمامية إن لزم
 CORS_ALLOW_CREDENTIALS = True
 # تأكيد السماح برأس Authorization الذي تعتمد عليه الواجهة بعد تسجيل الدخول
