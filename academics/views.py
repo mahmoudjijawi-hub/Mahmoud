@@ -59,18 +59,42 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         # الشطب الناعم: نخفي غير النشطين من القوائم
-        qs = Student.objects.select_related("user").filter(is_active=True)
+        qs = Student.objects.select_related("user").filter(is_active=True).order_by(
+            "first_name", "last_name"
+        )
         user = self.request.user
+        # الطالب يرى ملفه فقط
         if user.role == "student":
             return qs.filter(user=user)
-        if user.role == "teacher":
-            return qs
-        special = self.request.query_params.get("special_number")
-        name = self.request.query_params.get("search") or self.request.query_params.get("name")
-        if special:
-            qs = qs.filter(special_number=str(special))
-        if name:
-            qs = qs.filter(Q(first_name__icontains=name) | Q(last_name__icontains=name))
+
+        params = self.request.query_params
+        # أسماء معاملات شائعة من الفرونت/البرومبت
+        special = (
+            params.get("special_number")
+            or params.get("specialNumber")
+            or params.get("number")
+        )
+        name = params.get("search") or params.get("name") or params.get("q")
+
+        if special is not None and str(special).strip() != "":
+            special = str(special).strip()
+            # مطابقة تامة بعد إزالة الفراغات (رقم مثل 22)
+            qs = qs.filter(special_number=special)
+
+        if name is not None and str(name).strip() != "":
+            name = str(name).strip()
+            if name.isdigit():
+                # إن كان البحث رقمياً نبحث بالرقم المميز أيضاً (واجهة المدير غالباً ترسل search=22)
+                qs = qs.filter(
+                    Q(special_number__icontains=name)
+                    | Q(first_name__icontains=name)
+                    | Q(last_name__icontains=name)
+                )
+            else:
+                qs = qs.filter(
+                    Q(first_name__icontains=name) | Q(last_name__icontains=name)
+                )
+
         return qs
 
     def perform_destroy(self, instance):
