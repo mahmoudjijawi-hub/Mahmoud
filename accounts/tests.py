@@ -315,6 +315,54 @@ class PostmanAPITests(TestCase):
         student = Student.objects.get(pk=student_id)
         self.assertFalse(student.is_active)
 
+    def test_reuse_special_number_after_soft_delete(self):
+        """بعد حذف طالب برقم 22 يمكن إنشاء طالب جديد بنفس الرقم دون تعارض unique."""
+        create = self.client.post(
+            "/api/students/",
+            {
+                "first_name": "قديم",
+                "last_name": "محذوف",
+                "special_number": 22,
+                "student_class": 10,
+                "parent_number": "0933111222",
+                "student_number": "5544",
+                "address": "عنوان قديم",
+                "personal_notes": "قديم",
+                "is_payer": False,
+                "class1": "رياضيات",
+                "class2": "فيزياء",
+                "class3": "كيمياء",
+            },
+            format="json",
+        )
+        self.assertEqual(create.status_code, 201)
+        old_id = create.data["id"]
+        delete = self.client.delete(f"/api/students/{old_id}/")
+        self.assertEqual(delete.status_code, 204)
+        recreate = self.client.post(
+            "/api/students/",
+            {
+                "first_name": "جديد",
+                "last_name": "طالب",
+                "special_number": 22,
+                "student_class": 10,
+                "parent_number": "0933111333",
+                "student_number": "5566",
+                "address": "عنوان جديد",
+                "personal_notes": "جديد",
+                "is_payer": False,
+                "class1": "رياضيات",
+                "class2": "فيزياء",
+                "class3": "كيمياء",
+            },
+            format="json",
+        )
+        self.assertEqual(recreate.status_code, 201, recreate.data)
+        self.assertEqual(str(recreate.data["special_number"]), "22")
+        old = Student.objects.get(pk=old_id)
+        self.assertFalse(old.is_active)
+        self.assertNotEqual(old.special_number, "22")
+
     def test_post_patch_delete_manager(self):
         """طلبات post manager و patch manager و delete user."""
         create = self.client.post(
