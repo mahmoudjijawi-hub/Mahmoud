@@ -214,6 +214,11 @@ class StudentSerializer(serializers.ModelSerializer):
                 if key in data and data.get(key) not in (None, ""):
                     data["last_name"] = data[key]
                     break
+        # في PATCH: النصوص الفارغة تفسد التحقق (هواتف...) — نحذفها ليبقى الحقل كما هو
+        if getattr(self, "partial", False):
+            for key in list(data.keys()):
+                if data.get(key) == "":
+                    data.pop(key, None)
         return super().to_internal_value(data)
 
     def validate_special_number(self, value):

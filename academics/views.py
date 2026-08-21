@@ -152,37 +152,29 @@ class StudentViewSet(viewsets.ModelViewSet):
         """
         زر الدفع من بطاقة الطالب:
         POST /api/students/{id|special_number}/pay/
-        يقبل FullAmount / PaidAmount / payment_type مثل /api/payments/
         """
-        from payments.serializers import PaymentSerializer
+        from payments.services import execute_payment, extract_raw_payload
+        from rest_framework.exceptions import ValidationError
 
         student = self.get_object()
-        payload = {}
-        if hasattr(request.data, "items"):
-            payload.update({k: v for k, v in request.data.items()})
-        for key, value in request.query_params.items():
-            if key not in payload or payload.get(key) in (None, ""):
-                payload[key] = value
-        payload.setdefault("student", str(student.id))
-        payload.setdefault("special_number", student.special_number)
-        if not payload.get("payment_type"):
-            payload["payment_type"] = "full"
-        serializer = PaymentSerializer(data=payload)
-        if not serializer.is_valid():
+        payload = extract_raw_payload(request)
+        payload["student"] = str(student.id)
+        payload["special_number"] = student.special_number
+        payload.setdefault("payment_type", "full")
+        try:
+            payment, data = execute_payment(payload, force_full=True)
+        except ValidationError as exc:
             return Response(
                 {
                     "success": False,
                     "detail": "تعذر إتمام الدفع من بطاقة الطالب.",
-                    "errors": serializer.errors,
-                    **serializer.errors,
+                    "errors": exc.detail,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        payment = serializer.save()
         student.refresh_from_db()
-        out = PaymentSerializer(payment).data
-        out["student_is_payer"] = student.is_payer
-        return Response(out, status=status.HTTP_201_CREATED)
+        data["student_is_payer"] = student.is_payer
+        return Response(data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post", "put", "patch"], url_path="full-payment")
     def full_payment(self, request, pk=None):
@@ -191,20 +183,23 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         """
-        شطب ناعم مع تحرير الرقم المميز واسم المستخدم،
-        حتى يمكن إضافة طالب جديد بنفس الرقم (مثل 22) لاحقاً مع بقاء السجلات التاريخية.
+        حذف نهائي من قاعدة البيانات (الطالب + حساب المستخدم).
+        السجلات المرتبطة (دفعات/حضور...) تُحذف عبر CASCADE أو تُفك ارتباطها.
+        الرقم المميز يصبح متاحاً فوراً لإعادة الاستخدام.
         """
-        # قيمة فريدة بطول 10 لتفريغ قيد unique على special_number
-        released = uuid.uuid4().hex[:10]
-        instance.is_active = False
-        instance.special_number = released
-        instance.save(update_fields=["is_active", "special_number"])
+        from django.db import transaction
+
         user = instance.user
-        user.is_active = False
-        user.special_number = released
-        # تحرير username أيضاً لأن الإنشاء يستخدم s{special_number}
-        user.username = f"d{released}"[:25]
-        user.save(update_fields=["is_active", "special_number", "username"])
+        with transaction.atomic():
+            # حذف الطالب أولاً ثم المستخدم حتى لا يبقى حساب يتيم
+            instance.delete()
+            # قد يُحذف المستخدم تلقائياً إن وُجدت إشارات؛ نتحقق
+            if user is not None and getattr(user, "pk", None):
+                try:
+                    user.refresh_from_db()
+                except user.__class__.DoesNotExist:
+                    return
+                user.delete()
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
