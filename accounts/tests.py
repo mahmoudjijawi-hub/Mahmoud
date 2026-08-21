@@ -509,6 +509,27 @@ class PostmanAPITests(TestCase):
         self.assertEqual(Decimal(finish.data["PaidAmount"]), Decimal("800.00"))
         self.assertEqual(Decimal(finish.data["Paymentresult"]), Decimal("0.00"))
 
+        # 4) الشكل الأشيع من الفرونت: student=الرقم المميز + FullAmount فقط
+        third = self._make_student("780")
+        by_special = self.client.post(
+            "/api/payments/",
+            {"student": "780", "FullAmount": "300"},
+            format="json",
+        )
+        self.assertEqual(by_special.status_code, 201, by_special.data)
+        self.assertEqual(Decimal(by_special.data["PaidAmount"]), Decimal("300.00"))
+        self.assertEqual(Decimal(by_special.data["Paymentresult"]), Decimal("0.00"))
+
+        # 5) كائن طالب متداخل
+        fourth = self._make_student("781")
+        nested = self.client.post(
+            "/api/payments/",
+            {"student": {"special_number": "781"}, "FullAmount": 450},
+            format="json",
+        )
+        self.assertEqual(nested.status_code, 201, nested.data)
+        self.assertEqual(Decimal(nested.data["PaidAmount"]), Decimal("450.00"))
+
     def test_time_table_post_patch_delete(self):
         """طلبات time table post و time table putch و time table delete."""
         student = self._make_student("557")
