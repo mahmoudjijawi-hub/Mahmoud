@@ -227,18 +227,13 @@ else:
         for pattern in env("CORS_ALLOWED_ORIGIN_REGEXES", default="").split(",")
         if pattern.strip()
     ]
-# True = أي أصل فرونت يُقبل (مناسب للتطوير وحل مشاكل CORS فوراً).
-# في الإنتاج ضع CORS_ALLOW_ALL_ORIGINS=False وحدد CORS_ALLOWED_ORIGINS صراحة.
-CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=True)
+# True = أي أصل فرونت يُقبل (حسب طلب التشغيل الحالي).
+CORS_ALLOW_ALL_ORIGINS = True
 # السماح بحمل التوكن من الواجهة الأمامية إن لزم
 CORS_ALLOW_CREDENTIALS = True
-# تأكيد السماح برأس Authorization الذي تعتمد عليه الواجهة بعد تسجيل الدخول
-from corsheaders.defaults import default_headers  # noqa: E402
-
-CORS_ALLOW_HEADERS = list(default_headers) + [
-    "authorization",
-    "content-type",
-]
+# السماح بكل الرؤوس والطرق حتى لا تُحجب طلبات الفرونت (preflight)
+CORS_ALLOW_HEADERS = ["*"]
+CORS_ALLOW_METHODS = ["*"]
 
 # الواجهة الأمامية تعتمد JWT: لا نعطّل CSRF عالمياً لأن /admin/ يحتاجه.
 # مسارات API تستخدم JWTAuthentication وليست SessionAuthentication، لذلك لا تُفرض CSRF عليها.
