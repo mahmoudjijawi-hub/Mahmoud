@@ -213,6 +213,12 @@ class StudentSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        raw = getattr(self, "initial_data", {}) or {}
+        became_payer = (
+            "is_payer" in validated_data
+            and validated_data.get("is_payer") is True
+            and not instance.is_payer
+        )
         for field, value in validated_data.items():
             setattr(instance, field, value)
         instance.save()
@@ -221,4 +227,38 @@ class StudentSerializer(serializers.ModelSerializer):
         user.last_name = instance.last_name
         user.special_number = instance.special_number
         user.save(update_fields=["first_name", "last_name", "special_number"])
+
+        # إن ضغط زر الدفع من شاشة الطالب (is_payer=true + مبلغ) نُنشئ دفعة كاملة تلقائياً
+        if became_payer:
+            from decimal import Decimal, InvalidOperation
+            from payments.models import Payment, PaymentTransaction
+
+            amount_raw = (
+                raw.get("FullAmount")
+                or raw.get("full_amount")
+                or raw.get("fullAmount")
+                or raw.get("amount")
+                or raw.get("PaidAmount")
+                or raw.get("paid_amount")
+            )
+            if amount_raw not in (None, ""):
+                try:
+                    amount = Decimal(str(amount_raw))
+                except (InvalidOperation, TypeError, ValueError):
+                    amount = None
+                if amount is not None and amount > 0:
+                    payment = Payment(
+                        student=instance,
+                        FullAmount=amount,
+                        PaidAmount=amount,
+                        Paymentresult=Decimal("0"),
+                        payment_type=Payment.TYPE_FULL,
+                    )
+                    payment.recalculate()
+                    payment.save()
+                    PaymentTransaction.objects.create(
+                        payment=payment,
+                        amount=amount,
+                        note="دفعة كاملة من شاشة الطالب",
+                    )
         return instance

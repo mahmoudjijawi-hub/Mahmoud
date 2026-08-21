@@ -1,4 +1,4 @@
-"""وسطاء الاشتراك وجلسة المدير الواحدة."""
+"""وسطاء الاشتراك وجلسة المدير الواحدة وإصلاح مسار الـ API."""
 from datetime import date
 
 from django.http import JsonResponse
@@ -13,6 +13,28 @@ _EXEMPT_PREFIXES = (
     "/static",
     "/media",
 )
+
+
+class ApiTrailingSlashMiddleware:
+    """
+    يمنع ضياع جسم POST عند نسيان الشرطة المائلة في مسارات /api/.
+    بدل إعادة توجيه 301 (التي تحول POST إلى GET عند كثير من العملاء)
+    نُعيد كتابة المسار داخلياً بإضافة /.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        path = request.path_info or request.path
+        if path.startswith("/api/") and not path.endswith("/"):
+            # لا نلمس مسارات الملفات ذات الامتداد
+            last = path.rsplit("/", 1)[-1]
+            if "." not in last:
+                new_path = path + "/"
+                request.path_info = new_path
+                request.path = new_path
+        return self.get_response(request)
 
 
 class SubscriptionMiddleware:

@@ -278,3 +278,22 @@ class PaymentSerializer(serializers.ModelSerializer):
             note="دفعة كاملة" if instance.payment_type == Payment.TYPE_FULL else "تعديل دفعة",
         )
         return instance
+
+    def to_representation(self, instance):
+        """استجابة غنية يفهمها الفرونت بعد الضغط على زر الدفع."""
+        data = super().to_representation(instance)
+        data["success"] = True
+        data["message"] = "تمت عملية الدفع بنجاح"
+        data["detail"] = "تمت عملية الدفع بنجاح"
+        # مرادفات snake_case / camelCase شائعة في الواجهات
+        data["full_amount"] = data.get("FullAmount")
+        data["paid_amount"] = data.get("PaidAmount")
+        data["payment_result"] = data.get("Paymentresult")
+        data["fullAmount"] = data.get("FullAmount")
+        data["paidAmount"] = data.get("PaidAmount")
+        data["paymentResult"] = data.get("Paymentresult")
+        data["student_id"] = data.get("student")
+        if instance.student_id:
+            data["special_number"] = instance.student.special_number
+            data["is_payer"] = instance.student.is_payer
+        return data

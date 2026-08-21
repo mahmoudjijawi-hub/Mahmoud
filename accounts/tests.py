@@ -530,6 +530,25 @@ class PostmanAPITests(TestCase):
         self.assertEqual(nested.status_code, 201, nested.data)
         self.assertEqual(Decimal(nested.data["PaidAmount"]), Decimal("450.00"))
 
+        # 6) بدون شرطة مائلة أخيرة — كان يضيع جسم POST
+        fifth = self._make_student("782")
+        no_slash = self.client.post(
+            "/api/payments",
+            {"student": "782", "FullAmount": "250"},
+            format="json",
+        )
+        self.assertEqual(no_slash.status_code, 201, no_slash.data)
+        self.assertTrue(no_slash.data.get("success"))
+
+        # 7) مرادف /api/pay/
+        sixth = self._make_student("783")
+        alias = self.client.post(
+            "/api/pay/",
+            {"student": str(sixth.id), "FullAmount": "150"},
+            format="json",
+        )
+        self.assertEqual(alias.status_code, 201, alias.data)
+
     def test_time_table_post_patch_delete(self):
         """طلبات time table post و time table putch و time table delete."""
         student = self._make_student("557")

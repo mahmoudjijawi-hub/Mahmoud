@@ -82,6 +82,8 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     # CORS قبل CommonMiddleware حتى تُعالَج preflight
     "corsheaders.middleware.CorsMiddleware",
+    # إصلاح الشرطة المائلة لمسارات API قبل CommonMiddleware حتى لا يضيع جسم POST
+    "core.middleware.ApiTrailingSlashMiddleware",
     # الجلسات قبل المصادقة
     "django.contrib.sessions.middleware.SessionMiddleware",
     # معالجة عامة للطلبات
@@ -281,7 +283,7 @@ REST_FRAMEWORK = {
         "user": "600/minute" if DEBUG else "300/minute",
         "login": "30/minute" if DEBUG else "5/minute",
         "special_number": "30/minute" if DEBUG else "5/minute",
-        "payments": "20/minute",
+        "payments": "120/minute" if DEBUG else "60/minute",
     },
     "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",
     "DEFAULT_RENDERER_CLASSES": (
