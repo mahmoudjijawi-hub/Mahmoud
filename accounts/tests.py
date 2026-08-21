@@ -457,6 +457,58 @@ class PostmanAPITests(TestCase):
         self.assertEqual(delete.status_code, 204)
         self.assertFalse(Payment.objects.filter(pk=pay_id).exists())
 
+    def test_full_payment_button_patterns(self):
+        """زر دفعة كاملة يعمل بعدة أشكال طلب من الفرونت."""
+        student = self._make_student("778")
+
+        # 1) payment_type=full بدون PaidAmount
+        create = self.client.post(
+            "/api/payments/",
+            {
+                "student": str(student.id),
+                "FullAmount": "1000.00",
+                "payment_type": "full",
+            },
+            format="json",
+        )
+        self.assertEqual(create.status_code, 201, create.data)
+        self.assertEqual(Decimal(create.data["PaidAmount"]), Decimal("1000.00"))
+        self.assertEqual(Decimal(create.data["Paymentresult"]), Decimal("0.00"))
+        self.assertEqual(create.data["payment_type"], "full")
+        student.refresh_from_db()
+        self.assertTrue(student.is_payer)
+
+        # 2) مسار /api/payments/full/ مع special_number
+        other = self._make_student("779")
+        full_endpoint = self.client.post(
+            "/api/payments/full/",
+            {
+                "special_number": "779",
+                "FullAmount": "500",
+            },
+            format="json",
+        )
+        self.assertEqual(full_endpoint.status_code, 201, full_endpoint.data)
+        self.assertEqual(Decimal(full_endpoint.data["PaidAmount"]), Decimal("500.00"))
+        self.assertEqual(Decimal(full_endpoint.data["Paymentresult"]), Decimal("0.00"))
+
+        # 3) إكمال دفعة موجودة
+        installment = self.client.post(
+            "/api/payments/",
+            {
+                "student": str(other.id),
+                "FullAmount": "800",
+                "PaidAmount": "200",
+            },
+            format="json",
+        )
+        self.assertEqual(installment.status_code, 201)
+        pay_id = installment.data["id"]
+        finish = self.client.post(f"/api/payments/{pay_id}/pay-full/", {}, format="json")
+        self.assertEqual(finish.status_code, 200, finish.data)
+        self.assertEqual(Decimal(finish.data["PaidAmount"]), Decimal("800.00"))
+        self.assertEqual(Decimal(finish.data["Paymentresult"]), Decimal("0.00"))
+
     def test_time_table_post_patch_delete(self):
         """طلبات time table post و time table putch و time table delete."""
         student = self._make_student("557")
