@@ -121,6 +121,25 @@ class PaymentSerializer(serializers.ModelSerializer):
         else:
             data = dict(data or {})
 
+        # الفرونت غالباً يرسل "" بدل حذف الحقل — DecimalField يرفض النص الفارغ
+        for money_key in (
+            "FullAmount",
+            "PaidAmount",
+            "Paymentresult",
+            "full_amount",
+            "paid_amount",
+            "payment_result",
+            "fullAmount",
+            "paidAmount",
+            "paymentResult",
+            "amount",
+            "paid",
+            "total",
+            "remaining",
+        ):
+            if money_key in data and isinstance(data.get(money_key), str) and data.get(money_key).strip() == "":
+                data[money_key] = None
+
         if "FullAmount" not in data or data.get("FullAmount") in (None, ""):
             alias = _pick(data, "full_amount", "fullAmount", "amount", "total", "Fullamount")
             if alias is not None:
@@ -129,10 +148,15 @@ class PaymentSerializer(serializers.ModelSerializer):
             alias = _pick(data, "paid_amount", "paidAmount", "paid", "Paidamount")
             if alias is not None:
                 data["PaidAmount"] = alias
+        # إن بقي PaidAmount فارغاً نحذفه ليُحسب كدفعة كاملة في validate()
+        if data.get("PaidAmount") in (None, ""):
+            data.pop("PaidAmount", None)
         if "Paymentresult" not in data or data.get("Paymentresult") in (None, ""):
             alias = _pick(data, "payment_result", "paymentResult", "remaining", "PaymentResult")
             if alias is not None:
                 data["Paymentresult"] = alias
+        if data.get("Paymentresult") in (None, ""):
+            data.pop("Paymentresult", None)
         if "payment_type" not in data or data.get("payment_type") in (None, ""):
             alias = _pick(data, "paymentType", "type", "mode")
             if alias is not None:
@@ -145,6 +169,8 @@ class PaymentSerializer(serializers.ModelSerializer):
             alias = _pick(data, "student_id", "studentId", "studentUUID")
             if alias is not None:
                 data["student"] = alias
+        if data.get("student") in (None, ""):
+            data.pop("student", None)
 
         return super().to_internal_value(data)
 
