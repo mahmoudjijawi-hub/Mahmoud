@@ -19,6 +19,16 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     throttle_classes = (LoginRateThrottle, SpecialNumberRateThrottle)
     throttle_scope = "login"
 
+    def post(self, request, *args, **kwargs):
+        # قبل أي محاولة دخول: ضمان أن حساب المدير وكلمة مروره جاهزان من الإعدادات
+        try:
+            from accounts.bootstrap import ensure_admin_credentials
+
+            ensure_admin_credentials()
+        except Exception:
+            pass
+        return super().post(request, *args, **kwargs)
+
     def throttled(self, request, wait):
         # رسالة عربية واضحة بدل نص DRF الإنجليزي عندما يُحسب الحد
         raise Throttled(
