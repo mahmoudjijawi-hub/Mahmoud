@@ -20,6 +20,7 @@ env = environ.Env(
     DEBUG=(bool, True),
     # القيمة الافتراضية لـ HTTPS: معطّل حتى تركيب شهادة SSL
     IS_HTTPS=(bool, False),
+    CORS_ALLOW_ALL_ORIGINS=(bool, True),
 )
 
 # قراءة ملف .env إن وُجد بجانب manage.py
@@ -122,12 +123,19 @@ TEMPLATES = [
 # مدخل WSGI
 WSGI_APPLICATION = "config.wsgi.application"
 
-# قاعدة بيانات PostgreSQL السحابية (Neon) عبر dj-database-url
+# قاعدة بيانات PostgreSQL السحابية (Neon) عبر dj-database-url من ملف .env
 import dj_database_url
 
 DATABASES = {
     "default": dj_database_url.parse(
-        "postgresql://neondb_owner:npg_4nOL7skoMpib@ep-late-block-ax2kg9c0.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
+        env(
+            "DATABASE_URL",
+            default=(
+                "postgresql://neondb_owner:npg_4nOL7skoMpib@"
+                "ep-late-block-ax2kg9c0.c-4.us-east-2.aws.neon.tech/"
+                "neondb?sslmode=require"
+            ),
+        )
     )
 }
 
@@ -214,7 +222,7 @@ else:
         if pattern.strip()
     ]
 # True = أي أصل فرونت يُقبل (حسب طلب التشغيل الحالي).
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = env("CORS_ALLOW_ALL_ORIGINS")
 # السماح بحمل التوكن من الواجهة الأمامية إن لزم
 CORS_ALLOW_CREDENTIALS = True
 # السماح بكل الرؤوس والطرق حتى لا تُحجب طلبات الفرونت (preflight)
