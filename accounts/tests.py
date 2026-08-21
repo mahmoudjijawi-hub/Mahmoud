@@ -144,6 +144,27 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response.data["code"], "invalid_credentials")
         self.assertIn("detail", response.data)
 
+    def test_migration_sets_usable_admin_password(self):
+        """بعد الهجرات يجب أن تنجح بيانات المدير الافتراضية من الإعدادات."""
+        from django.conf import settings
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user = User.objects.get(username=settings.ADMIN_USERNAME)
+        self.assertTrue(user.has_usable_password())
+        self.assertTrue(user.check_password(settings.ADMIN_PASSWORD))
+        client = APIClient()
+        response = client.post(
+            "/api/token/",
+            {
+                "username": settings.ADMIN_USERNAME,
+                "password": settings.ADMIN_PASSWORD,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["role"], "manager")
+
     def test_api_for_manager(self):
         """طلب api for manager: GET /api/managers/"""
         response = self.client.get("/api/managers/")
