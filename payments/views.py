@@ -3,13 +3,15 @@ import logging
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from core.permissions import IsManagerOrReadOnlyAuthenticated
 from core.throttles import PaymentRateThrottle
 from payments.models import Payment
+from payments.parsers import PAYMENT_PARSERS
 from payments.serializers import PaymentSerializer
+from payments.services import execute_payment, extract_raw_payload
 
 logger = logging.getLogger("payments")
 
@@ -19,7 +21,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
     permission_classes = (IsManagerOrReadOnlyAuthenticated,)
     throttle_classes = (PaymentRateThrottle,)
     throttle_scope = "payments"
-    parser_classes = (JSONParser, FormParser, MultiPartParser)
+    parser_classes = PAYMENT_PARSERS
     http_method_names = ["get", "post", "patch", "put", "delete", "head", "options"]
 
     def get_queryset(self):
@@ -37,81 +39,69 @@ class PaymentViewSet(viewsets.ModelViewSet):
             qs = qs.filter(student__special_number=str(special).strip())
         return qs
 
-    def _merged_payment_payload(self, request):
-        """دمج body + query لأن بعض الواجهات ترسل المبلغ في الاستعلام فقط."""
-        payload = {}
-        if hasattr(request.data, "items"):
-            payload.update({k: v for k, v in request.data.items()})
-        elif request.data:
-            payload.update(dict(request.data))
-        for key, value in request.query_params.items():
-            if key not in payload or payload.get(key) in (None, ""):
-                payload[key] = value
-        return payload
+    def _pay_response(self, request, force_full=False):
+        payload = extract_raw_payload(request)
+        try:
+            payment, data = execute_payment(payload, force_full=force_full)
+        except ValidationError as exc:
+            detail = getattr(exc, "detail", str(exc))
+            logger.warning("payment_failed data=%s errors=%s", payload, detail)
+            body = {
+                "success": False,
+                "detail": "تعذر إتمام الدفع. تحقق من بيانات الطالب والمبلغ.",
+                "errors": detail,
+            }
+            if isinstance(detail, dict):
+                body.update(detail)
+            return Response(body, status=status.HTTP_400_BAD_REQUEST)
+        # 200 وليس 201 فقط — كثير من واجهات الفرونت تفحص status === 200
+        return Response(data, status=status.HTTP_200_OK)
 
     def create(self, request, *args, **kwargs):
-        """إنشاء دفعة — يسجّل جسم الطلب عند الفشل لتسهيل التشخيص."""
-        payload = self._merged_payment_payload(request)
-        serializer = self.get_serializer(data=payload)
-        if not serializer.is_valid():
-            logger.warning("payment_create_failed data=%s errors=%s", payload, serializer.errors)
-            return Response(
-                {
-                    "success": False,
-                    "detail": "تعذر إتمام الدفع. تحقق من بيانات الطالب والمبلغ.",
-                    "errors": serializer.errors,
-                    **serializer.errors,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        payment = serializer.save()
-        out = self.get_serializer(payment).data
-        return Response(out, status=status.HTTP_201_CREATED)
+        """إنشاء/إكمال دفعة من زر الدفع."""
+        return self._pay_response(request, force_full=False)
+
+    def update(self, request, *args, **kwargs):
+        """PUT كامل — إن وُجد pk نحدّث، وإلا نعاملها كإنشاء دفع."""
+        if kwargs.get("pk"):
+            return super().update(request, *args, **kwargs)
+        return self._pay_response(request, force_full=True)
+
+    def partial_update(self, request, *args, **kwargs):
+        response = super().partial_update(request, *args, **kwargs)
+        if isinstance(response.data, dict):
+            response.data.setdefault("success", True)
+        return response
 
     @action(detail=False, methods=["post", "put", "patch"], url_path="full")
     def full_payment(self, request):
-        """
-        زر دفعة كاملة:
-        POST /api/payments/full/
-        """
-        payload = self._merged_payment_payload(request)
-        payload["payment_type"] = Payment.TYPE_FULL
-        serializer = self.get_serializer(data=payload)
-        if not serializer.is_valid():
-            logger.warning("payment_full_failed data=%s errors=%s", payload, serializer.errors)
-            return Response(
-                {
-                    "success": False,
-                    "detail": "تعذر إتمام الدفعة الكاملة.",
-                    "errors": serializer.errors,
-                    **serializer.errors,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        payment = serializer.save()
-        return Response(self.get_serializer(payment).data, status=status.HTTP_201_CREATED)
+        """POST /api/payments/full/"""
+        return self._pay_response(request, force_full=True)
 
-    @action(detail=False, methods=["post", "put"], url_path="full-payment")
+    @action(detail=False, methods=["post", "put", "patch"], url_path="full-payment")
     def full_payment_alias(self, request):
-        """مرادف إضافي: POST /api/payments/full-payment/"""
+        """POST /api/payments/full-payment/"""
         return self.full_payment(request)
+
+    @action(detail=False, methods=["post", "put", "patch"], url_path="pay")
+    def pay_alias(self, request):
+        """POST /api/payments/pay/"""
+        return self._pay_response(request, force_full=True)
 
     @action(detail=True, methods=["post", "put", "patch"], url_path="pay-full")
     def pay_remaining_full(self, request, pk=None):
-        """
-        إكمال دفعة موجودة بالكامل:
-        POST /api/payments/{id}/pay-full/
-        """
+        """POST /api/payments/{id}/pay-full/"""
         payment = self.get_object()
-        serializer = self.get_serializer(
-            payment,
-            data={
-                "FullAmount": payment.FullAmount,
-                "PaidAmount": payment.FullAmount,
-                "payment_type": Payment.TYPE_FULL,
-            },
-            partial=True,
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data)
+        payload = extract_raw_payload(request)
+        payload["student"] = str(payment.student_id)
+        payload["FullAmount"] = payload.get("FullAmount") or str(payment.FullAmount)
+        payload["PaidAmount"] = str(payment.FullAmount)
+        payload["payment_type"] = Payment.TYPE_FULL
+        try:
+            payment, data = execute_payment(payload, force_full=True)
+        except ValidationError as exc:
+            return Response(
+                {"success": False, "detail": "تعذر إكمال الدفعة.", "errors": exc.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(data, status=status.HTTP_200_OK)
