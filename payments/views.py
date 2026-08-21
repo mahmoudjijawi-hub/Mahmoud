@@ -18,6 +18,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
     serializer_class = PaymentSerializer
     permission_classes = (IsManagerOrReadOnlyAuthenticated,)
     throttle_classes = (PaymentRateThrottle,)
+    throttle_scope = "payments"
     parser_classes = (JSONParser, FormParser, MultiPartParser)
     http_method_names = ["get", "post", "patch", "put", "delete", "head", "options"]
 
@@ -36,11 +37,24 @@ class PaymentViewSet(viewsets.ModelViewSet):
             qs = qs.filter(student__special_number=str(special).strip())
         return qs
 
+    def _merged_payment_payload(self, request):
+        """دمج body + query لأن بعض الواجهات ترسل المبلغ في الاستعلام فقط."""
+        payload = {}
+        if hasattr(request.data, "items"):
+            payload.update({k: v for k, v in request.data.items()})
+        elif request.data:
+            payload.update(dict(request.data))
+        for key, value in request.query_params.items():
+            if key not in payload or payload.get(key) in (None, ""):
+                payload[key] = value
+        return payload
+
     def create(self, request, *args, **kwargs):
         """إنشاء دفعة — يسجّل جسم الطلب عند الفشل لتسهيل التشخيص."""
-        serializer = self.get_serializer(data=request.data)
+        payload = self._merged_payment_payload(request)
+        serializer = self.get_serializer(data=payload)
         if not serializer.is_valid():
-            logger.warning("payment_create_failed data=%s errors=%s", dict(request.data), serializer.errors)
+            logger.warning("payment_create_failed data=%s errors=%s", payload, serializer.errors)
             return Response(
                 {
                     "success": False,
@@ -54,13 +68,13 @@ class PaymentViewSet(viewsets.ModelViewSet):
         out = self.get_serializer(payment).data
         return Response(out, status=status.HTTP_201_CREATED)
 
-    @action(detail=False, methods=["post", "put"], url_path="full")
+    @action(detail=False, methods=["post", "put", "patch"], url_path="full")
     def full_payment(self, request):
         """
         زر دفعة كاملة:
         POST /api/payments/full/
         """
-        payload = {k: v for k, v in request.data.items()} if hasattr(request.data, "items") else dict(request.data)
+        payload = self._merged_payment_payload(request)
         payload["payment_type"] = Payment.TYPE_FULL
         serializer = self.get_serializer(data=payload)
         if not serializer.is_valid():

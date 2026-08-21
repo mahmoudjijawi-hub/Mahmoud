@@ -50,9 +50,9 @@ class FlexibleBooleanField(serializers.Field):
         if data is None or data == "":
             return False
         text = str(data).strip().lower()
-        if text in ("true", "1", "yes", "y"):
+        if text in ("true", "1", "yes", "y", "نعم", "صح", "مسدد", "دفع", "full"):
             return True
-        if text in ("false", "0", "no", "n"):
+        if text in ("false", "0", "no", "n", "لا", "غير مسدد"):
             return False
         raise serializers.ValidationError("قيمة غير صالحة للحقل المنطقي.")
 

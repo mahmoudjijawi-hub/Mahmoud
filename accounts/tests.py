@@ -549,6 +549,29 @@ class PostmanAPITests(TestCase):
         )
         self.assertEqual(alias.status_code, 201, alias.data)
 
+        # 8) زر الدفع من بطاقة الطالب
+        seventh = self._make_student("784")
+        student_pay = self.client.post(
+            f"/api/students/{seventh.special_number}/pay/",
+            {"FullAmount": "900"},
+            format="json",
+        )
+        self.assertEqual(student_pay.status_code, 201, student_pay.data)
+        seventh.refresh_from_db()
+        self.assertTrue(seventh.is_payer)
+
+        # 9) PATCH isPayer camelCase + مبلغ
+        eighth = self._make_student("785")
+        patch_payer = self.client.patch(
+            f"/api/students/{eighth.id}/",
+            {"isPayer": True, "FullAmount": "400"},
+            format="json",
+        )
+        self.assertEqual(patch_payer.status_code, 200, patch_payer.data)
+        eighth.refresh_from_db()
+        self.assertTrue(eighth.is_payer)
+        self.assertTrue(Payment.objects.filter(student=eighth, Paymentresult=0).exists())
+
     def test_time_table_post_patch_delete(self):
         """طلبات time table post و time table putch و time table delete."""
         student = self._make_student("557")

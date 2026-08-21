@@ -26,7 +26,7 @@ class ApiTrailingSlashMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        path = request.path_info or request.path
+        path = request.path_info or request.path or ""
         if path.startswith("/api/") and not path.endswith("/"):
             # لا نلمس مسارات الملفات ذات الامتداد
             last = path.rsplit("/", 1)[-1]
@@ -34,6 +34,8 @@ class ApiTrailingSlashMiddleware:
                 new_path = path + "/"
                 request.path_info = new_path
                 request.path = new_path
+                # بعض الخوادم تقرأ PATH_INFO من META بعد الوسطاء
+                request.META["PATH_INFO"] = new_path
         return self.get_response(request)
 
 
