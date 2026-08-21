@@ -1,4 +1,6 @@
 """واجهات الأساتذة والطلاب المطابقة للـ Collection مع منع IDOR."""
+import uuid
+
 from django.db.models import Q
 from django.http import FileResponse, Http404
 from rest_framework import viewsets, status
@@ -72,11 +74,21 @@ class StudentViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_destroy(self, instance):
-        # شطب ناعم حتى تبقى سجلات الحضور والعلامات والدفع
+        """
+        شطب ناعم مع تحرير الرقم المميز واسم المستخدم،
+        حتى يمكن إضافة طالب جديد بنفس الرقم (مثل 22) لاحقاً مع بقاء السجلات التاريخية.
+        """
+        # قيمة فريدة بطول 10 لتفريغ قيد unique على special_number
+        released = uuid.uuid4().hex[:10]
         instance.is_active = False
-        instance.save(update_fields=["is_active"])
-        instance.user.is_active = False
-        instance.user.save(update_fields=["is_active"])
+        instance.special_number = released
+        instance.save(update_fields=["is_active", "special_number"])
+        user = instance.user
+        user.is_active = False
+        user.special_number = released
+        # تحرير username أيضاً لأن الإنشاء يستخدم s{special_number}
+        user.username = f"d{released}"[:25]
+        user.save(update_fields=["is_active", "special_number", "username"])
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
