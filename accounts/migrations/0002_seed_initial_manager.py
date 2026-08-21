@@ -14,9 +14,12 @@ def seed_initial_manager(apps, schema_editor):
     username = getattr(settings, "ADMIN_USERNAME", "ammar")
     first_name = str(getattr(settings, "ADMIN_FIRST_NAME", "مدير"))[:15]
     last_name = str(getattr(settings, "ADMIN_LAST_NAME", "المعهد"))[:15]
+    password = str(getattr(settings, "ADMIN_PASSWORD", "ammar12345ammar") or "ammar12345ammar")
     # لا نكرر الزرع إن وُجد المستخدم
     if CustomUser.objects.filter(special_number=special).exists():
         return
+    from django.contrib.auth.hashers import make_password
+
     user = CustomUser(
         username=username[:25],
         first_name=first_name,
@@ -27,9 +30,9 @@ def seed_initial_manager(apps, schema_editor):
         is_active=True,
         is_staff=False,
         is_superuser=False,
+        # تجزئة كلمة المرور مباشرة حتى ينجح الدخول بعد migrate بدون seed_manager
+        password=make_password(password),
     )
-    # كلمة المرور تُضبط لاحقاً عبر seed_manager لأن التاريخي لا يملك set_password المخصص
-    user.password = "!"
     user.save()
     Manager.objects.create(
         user=user,

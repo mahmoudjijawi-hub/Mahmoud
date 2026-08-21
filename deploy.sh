@@ -17,6 +17,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 # تطبيق الهجرات على قاعدة هذا المعهد فقط
 python manage.py migrate
+# مزامنة كلمة مرور المدير من .env (ضروري حتى ينجح دخول الفرونت)
+python manage.py seed_manager
 # تجميع الملفات الثابتة
 python manage.py collectstatic --noinput
 # إعادة تشغيل خدمة التطبيق
