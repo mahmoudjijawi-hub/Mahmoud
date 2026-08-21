@@ -30,6 +30,9 @@ router.register(r"time_table", TimeTableViewSet, basename="time_table")
 router.register(r"programs", ProgramViewSet, basename="programs")
 # مورد الدفعات: /api/payments/
 router.register(r"payments", PaymentViewSet, basename="payments")
+# مرادفات شائعة قد يستدعيها الفرونت لزر الدفع
+router.register(r"payment", PaymentViewSet, basename="payment")
+router.register(r"pay", PaymentViewSet, basename="pay")
 # مورد الحضور (غير موجود بالـ Collection؛ أُضيف بنفس نمط REST دون كسر المسارات الأخرى)
 router.register(r"attendance", AttendanceViewSet, basename="attendance")
 

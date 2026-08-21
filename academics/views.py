@@ -65,7 +65,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     serializer_class = StudentSerializer
     permission_classes = (IsManagerOrReadOnlyAuthenticated, IsStudentOwner)
     pagination_class = StudentPagination
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    http_method_names = ["get", "post", "patch", "put", "delete", "head", "options"]
 
     def get_queryset(self):
         # الشطب الناعم: نخفي غير النشطين من القوائم
@@ -146,6 +146,48 @@ class StudentViewSet(viewsets.ModelViewSet):
             return self.get_paginated_response(serializer.data)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=["post", "put", "patch"], url_path="pay")
+    def pay(self, request, pk=None):
+        """
+        زر الدفع من بطاقة الطالب:
+        POST /api/students/{id|special_number}/pay/
+        يقبل FullAmount / PaidAmount / payment_type مثل /api/payments/
+        """
+        from payments.serializers import PaymentSerializer
+
+        student = self.get_object()
+        payload = {}
+        if hasattr(request.data, "items"):
+            payload.update({k: v for k, v in request.data.items()})
+        for key, value in request.query_params.items():
+            if key not in payload or payload.get(key) in (None, ""):
+                payload[key] = value
+        payload.setdefault("student", str(student.id))
+        payload.setdefault("special_number", student.special_number)
+        if not payload.get("payment_type"):
+            payload["payment_type"] = "full"
+        serializer = PaymentSerializer(data=payload)
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "detail": "تعذر إتمام الدفع من بطاقة الطالب.",
+                    "errors": serializer.errors,
+                    **serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        payment = serializer.save()
+        student.refresh_from_db()
+        out = PaymentSerializer(payment).data
+        out["student_is_payer"] = student.is_payer
+        return Response(out, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post", "put", "patch"], url_path="full-payment")
+    def full_payment(self, request, pk=None):
+        """مرادف: POST /api/students/{id}/full-payment/"""
+        return self.pay(request, pk=pk)
 
     def perform_destroy(self, instance):
         """

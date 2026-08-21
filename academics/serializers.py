@@ -172,6 +172,50 @@ class StudentSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id",)
 
+    def to_internal_value(self, data):
+        # تطبيع أسماء camelCase الشائعة من الفرونت قبل التحقق
+        if hasattr(data, "items"):
+            data = {k: v for k, v in data.items()}
+        else:
+            data = dict(data or {})
+
+        if "is_payer" not in data or data.get("is_payer") in (None, ""):
+            for key in ("isPayer", "IsPayer", "payer", "paid", "is_paid", "isPaid"):
+                if key in data and data.get(key) not in (None, ""):
+                    data["is_payer"] = data[key]
+                    break
+        if "special_number" not in data or data.get("special_number") in (None, ""):
+            for key in ("specialNumber", "number", "student_special_number"):
+                if key in data and data.get(key) not in (None, ""):
+                    data["special_number"] = data[key]
+                    break
+        if "student_class" not in data or data.get("student_class") in (None, ""):
+            for key in ("studentClass", "class", "class_name"):
+                if key in data and data.get(key) not in (None, ""):
+                    data["student_class"] = data[key]
+                    break
+        if "parent_number" not in data or data.get("parent_number") in (None, ""):
+            for key in ("parentNumber", "parent_phone"):
+                if key in data and data.get(key) not in (None, ""):
+                    data["parent_number"] = data[key]
+                    break
+        if "student_number" not in data or data.get("student_number") in (None, ""):
+            for key in ("studentNumber", "phone", "student_phone"):
+                if key in data and data.get(key) not in (None, ""):
+                    data["student_number"] = data[key]
+                    break
+        if "first_name" not in data or data.get("first_name") in (None, ""):
+            for key in ("firstName", "fname"):
+                if key in data and data.get(key) not in (None, ""):
+                    data["first_name"] = data[key]
+                    break
+        if "last_name" not in data or data.get("last_name") in (None, ""):
+            for key in ("lastName", "lname"):
+                if key in data and data.get(key) not in (None, ""):
+                    data["last_name"] = data[key]
+                    break
+        return super().to_internal_value(data)
+
     def validate_special_number(self, value):
         if not str(value).isdigit():
             raise serializers.ValidationError("الرقم المميز يجب أن يكون رقمياً.")
@@ -197,9 +241,85 @@ class StudentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"special_number": "تأكيد الرقم المميز غير مطابق."})
         return attrs
 
+    def _extract_amount(self, raw):
+        from decimal import Decimal, InvalidOperation
+
+        if not isinstance(raw, dict):
+            return None
+        amount_raw = (
+            raw.get("FullAmount")
+            or raw.get("full_amount")
+            or raw.get("fullAmount")
+            or raw.get("amount")
+            or raw.get("PaidAmount")
+            or raw.get("paid_amount")
+            or raw.get("paidAmount")
+            or raw.get("total")
+        )
+        if amount_raw in (None, ""):
+            return None
+        try:
+            amount = Decimal(str(amount_raw))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        return amount if amount > 0 else None
+
+    def _record_full_payment(self, student, amount, note="دفعة كاملة من شاشة الطالب"):
+        from decimal import Decimal
+        from payments.models import Payment, PaymentTransaction
+
+        payment = Payment(
+            student=student,
+            FullAmount=amount,
+            PaidAmount=amount,
+            Paymentresult=Decimal("0"),
+            payment_type=Payment.TYPE_FULL,
+        )
+        payment.recalculate()
+        payment.save()
+        PaymentTransaction.objects.create(payment=payment, amount=amount, note=note)
+        return payment
+
+    def _sync_payments_when_payer(self, student, raw):
+        """عند is_payer=true: إنشاء/إكمال الدفعات المرتبطة بزر الدفع."""
+        from payments.models import Payment, PaymentTransaction
+
+        amount = self._extract_amount(raw)
+        open_payments = list(
+            Payment.objects.filter(student=student).exclude(Paymentresult=0)
+        )
+        if amount is not None:
+            if open_payments:
+                for payment in open_payments:
+                    old_paid = payment.PaidAmount
+                    payment.PaidAmount = payment.FullAmount
+                    payment.recalculate()
+                    payment.save()
+                    PaymentTransaction.objects.create(
+                        payment=payment,
+                        amount=payment.PaidAmount - old_paid,
+                        note="إكمال دفعة من زر الدفع",
+                    )
+            else:
+                self._record_full_payment(student, amount)
+            return
+
+        # بلا مبلغ: أكمل أي دفعات مفتوحة، وإلا اترك is_payer فقط
+        for payment in open_payments:
+            old_paid = payment.PaidAmount
+            payment.PaidAmount = payment.FullAmount
+            payment.recalculate()
+            payment.save()
+            PaymentTransaction.objects.create(
+                payment=payment,
+                amount=payment.PaidAmount - old_paid,
+                note="إكمال دفعة من تعليم is_payer",
+            )
+
     @transaction.atomic
     def create(self, validated_data):
         special = validated_data["special_number"]
+        raw = getattr(self, "initial_data", {}) or {}
         user = CustomUser.objects.create_user(
             username=f"s{special}"[:25],
             password=None,
@@ -209,10 +329,21 @@ class StudentSerializer(serializers.ModelSerializer):
             role=CustomUser.ROLE_STUDENT,
             user_type="3",
         )
-        return Student.objects.create(user=user, **validated_data)
+        student = Student.objects.create(user=user, **validated_data)
+        if student.is_payer:
+            self._sync_payments_when_payer(student, raw)
+        return student
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        raw = getattr(self, "initial_data", {}) or {}
+        became_payer = (
+            "is_payer" in validated_data
+            and validated_data.get("is_payer") is True
+            and not instance.is_payer
+        )
+        # زر الدفع قد يرسل مبلغاً مع is_payer=true حتى لو كان مسدداً مسبقاً
+        force_pay = validated_data.get("is_payer") is True and self._extract_amount(raw) is not None
         for field, value in validated_data.items():
             setattr(instance, field, value)
         instance.save()
@@ -221,4 +352,16 @@ class StudentSerializer(serializers.ModelSerializer):
         user.last_name = instance.last_name
         user.special_number = instance.special_number
         user.save(update_fields=["first_name", "last_name", "special_number"])
+
+        if became_payer or force_pay:
+            self._sync_payments_when_payer(instance, raw)
+            if not instance.is_payer:
+                instance.is_payer = True
+                instance.save(update_fields=["is_payer"])
         return instance
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["isPayer"] = data.get("is_payer")
+        data["specialNumber"] = data.get("special_number")
+        return data
