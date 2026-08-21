@@ -559,6 +559,32 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 1)
 
+    def test_search_student_by_all_frontend_patterns(self):
+        """البحث بالرقم المميز يعمل بكل أنماط الفرونت الشائعة."""
+        self._make_student("22")
+        self._make_student("220")
+
+        cases = [
+            "/api/students/?special_number=22",
+            "/api/students/?specialNumber=22",
+            "/api/students/?number=22",
+            "/api/students/?search=22",
+            "/api/students/?q=22",
+            "/api/students/search/?special_number=22",
+            "/api/students/search/?q=22",
+        ]
+        for url in cases:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200, url)
+            self.assertGreaterEqual(response.data["count"], 1, url)
+            numbers = {str(row["special_number"]) for row in response.data["results"]}
+            self.assertIn("22", numbers, url)
+
+        detail = self.client.get("/api/students/22/")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(str(detail.data["special_number"]), "22")
+        self.assertEqual(detail.data["first_name"], "طالب")
+
     def test_field_max_length_arabic_error(self):
         response = self.client.post(
             "/api/teachers/",
