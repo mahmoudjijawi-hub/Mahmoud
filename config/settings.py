@@ -122,28 +122,14 @@ TEMPLATES = [
 # مدخل WSGI
 WSGI_APPLICATION = "config.wsgi.application"
 
-# قاعدة البيانات: sqlite محلياً أو PostgreSQL من البيئة
-_db_engine = env("DB_ENGINE", default="django.db.backends.sqlite3")
-if _db_engine == "django.db.backends.sqlite3":
-    # مسار ملف sqlite داخل جذر المشروع
-    DATABASES = {
-        "default": {
-            "ENGINE": _db_engine,
-            "NAME": BASE_DIR / env("DB_NAME", default="db.sqlite3"),
-        }
-    }
-else:
-    # PostgreSQL لكل معهد (قاعدة مستقلة لكل نشرة)
-    DATABASES = {
-        "default": {
-            "ENGINE": _db_engine,
-            "NAME": env("DB_NAME"),
-            "USER": env("DB_USER"),
-            "PASSWORD": env("DB_PASSWORD"),
-            "HOST": env("DB_HOST", default="localhost"),
-            "PORT": env("DB_PORT", default="5432"),
-        }
-    }
+# قاعدة بيانات PostgreSQL السحابية (Neon) عبر dj-database-url
+import dj_database_url
+
+DATABASES = {
+    "default": dj_database_url.parse(
+        "postgresql://neondb_owner:npg_4nOL7skoMpib@ep-late-block-ax2kg9c0.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
+    )
+}
 
 # نموذج المستخدم المخصص (UUID + أدوار)
 AUTH_USER_MODEL = "accounts.CustomUser"
