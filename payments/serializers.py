@@ -1,4 +1,5 @@
-"""مسلسل الدفعات بأسماء الحقول كما في الـ Collection مع دعم دفعة كاملة من الفرونت."""
+"""مسلسل الدفعات بأسماء الحقول كما في الـ Collection مع دعم زر الدفعة الكاملة."""
+import uuid
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
@@ -32,12 +33,63 @@ def _pick(data, *keys):
     return None
 
 
+def _is_uuid(value):
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+def _resolve_student(value):
+    """
+    يقبل:
+    - UUID
+    - رقم مميز كنص/رقم
+    - كائن {id} أو {special_number}
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, Student):
+        return value
+    if isinstance(value, dict):
+        if value.get("id"):
+            return Student.objects.filter(pk=value["id"], is_active=True).first()
+        special = (
+            value.get("special_number")
+            or value.get("specialNumber")
+            or value.get("number")
+        )
+        if special is not None and str(special).strip() != "":
+            return Student.objects.filter(
+                special_number=str(special).strip(), is_active=True
+            ).first()
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+    if _is_uuid(text):
+        return Student.objects.filter(pk=text, is_active=True).first()
+    # الفرونت غالباً يضع الرقم المميز في حقل student
+    return Student.objects.filter(special_number=text, is_active=True).first()
+
+
+class FlexibleStudentField(serializers.Field):
+    """حقل طالب يقبل UUID أو رقماً مميزاً أو كائناً متداخلاً."""
+
+    def to_internal_value(self, data):
+        student = _resolve_student(data)
+        if student is None:
+            raise serializers.ValidationError("الطالب غير موجود أو غير نشط.")
+        return student
+
+    def to_representation(self, value):
+        return str(value.pk) if value is not None else None
+
+
 class PaymentSerializer(serializers.ModelSerializer):
-    student = serializers.PrimaryKeyRelatedField(
-        queryset=Student.objects.filter(is_active=True),
-        required=False,
-        allow_null=True,
-    )
+    student = FlexibleStudentField(required=False)
     FullAmount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
     PaidAmount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
     Paymentresult = serializers.DecimalField(
@@ -64,28 +116,28 @@ class PaymentSerializer(serializers.ModelSerializer):
 
     def to_internal_value(self, data):
         # تطبيع أسماء الحقول الشائعة من الفرونت قبل التحقق
-        if hasattr(data, "copy"):
-            data = data.copy()
+        if hasattr(data, "items"):
+            data = {k: v for k, v in data.items()}
         else:
             data = dict(data or {})
 
-        if "FullAmount" not in data:
+        if "FullAmount" not in data or data.get("FullAmount") in (None, ""):
             alias = _pick(data, "full_amount", "fullAmount", "amount", "total", "Fullamount")
             if alias is not None:
                 data["FullAmount"] = alias
-        if "PaidAmount" not in data:
+        if "PaidAmount" not in data or data.get("PaidAmount") in (None, ""):
             alias = _pick(data, "paid_amount", "paidAmount", "paid", "Paidamount")
             if alias is not None:
                 data["PaidAmount"] = alias
-        if "Paymentresult" not in data:
+        if "Paymentresult" not in data or data.get("Paymentresult") in (None, ""):
             alias = _pick(data, "payment_result", "paymentResult", "remaining", "PaymentResult")
             if alias is not None:
                 data["Paymentresult"] = alias
-        if "payment_type" not in data:
+        if "payment_type" not in data or data.get("payment_type") in (None, ""):
             alias = _pick(data, "paymentType", "type", "mode")
             if alias is not None:
                 data["payment_type"] = alias
-        if "special_number" not in data:
+        if "special_number" not in data or data.get("special_number") in (None, ""):
             alias = _pick(data, "specialNumber", "number", "student_special_number")
             if alias is not None:
                 data["special_number"] = alias
@@ -98,23 +150,42 @@ class PaymentSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         raw = getattr(self, "initial_data", {}) or {}
-        special = str(attrs.pop("special_number", None) or _pick(raw, "special_number", "specialNumber") or "").strip()
+        special = str(
+            attrs.pop("special_number", None)
+            or _pick(raw, "special_number", "specialNumber", "number")
+            or ""
+        ).strip()
 
         student = attrs.get("student")
         if student is None and special:
-            student = Student.objects.filter(special_number=special, is_active=True).first()
+            student = _resolve_student(special)
             if student is None:
-                raise serializers.ValidationError({"student": "لا يوجد طالب نشط بهذا الرقم المميز."})
+                raise serializers.ValidationError(
+                    {"student": "لا يوجد طالب نشط بهذا الرقم المميز."}
+                )
             attrs["student"] = student
         if attrs.get("student") is None and self.instance is None:
-            raise serializers.ValidationError({"student": "يجب تحديد الطالب أو الرقم المميز."})
+            # محاولة أخيرة من الحقل student الخام
+            student = _resolve_student(_pick(raw, "student", "student_id", "studentId"))
+            if student is not None:
+                attrs["student"] = student
+        if attrs.get("student") is None and self.instance is None:
+            raise serializers.ValidationError(
+                {"student": "يجب تحديد الطالب أو الرقم المميز."}
+            )
 
         full_amount = attrs.get("FullAmount")
         paid_amount = attrs.get("PaidAmount")
-        payment_type = str(attrs.get("payment_type") or _pick(raw, "payment_type", "paymentType", "type") or "").strip().lower()
+        payment_type = str(
+            attrs.get("payment_type")
+            or _pick(raw, "payment_type", "paymentType", "type")
+            or ""
+        ).strip().lower()
 
-        # زر «دفعة كاملة»: إن لم يُرسل المدفوع نعتبره مساوياً للقسط الكلي
-        is_full = payment_type in (
+        is_full_flag = str(
+            _pick(raw, "is_full", "fullPayment", "pay_full", "full") or ""
+        ).lower() in ("1", "true", "yes", "full")
+        is_full = is_full_flag or payment_type in (
             "full",
             "full_payment",
             "fullpayment",
@@ -124,6 +195,7 @@ class PaymentSerializer(serializers.ModelSerializer):
             "دفعة كاملة",
             "دفع كاملة",
         )
+
         if full_amount is None and self.instance is not None:
             full_amount = self.instance.FullAmount
         if full_amount is None:
@@ -132,28 +204,26 @@ class PaymentSerializer(serializers.ModelSerializer):
         full_amount = _to_decimal(full_amount, "FullAmount")
         attrs["FullAmount"] = full_amount
 
+        # زر دفعة كاملة: إذا لم يُرسل PaidAmount نعتبره = FullAmount دائماً
         if paid_amount is None:
-            if is_full or str(_pick(raw, "is_full", "fullPayment", "pay_full") or "").lower() in (
-                "1",
-                "true",
-                "yes",
-            ):
+            if is_full or self.instance is None:
+                # إنشاء جديد بدون PaidAmount = دفعة كاملة (سلوك زر الواجهة)
                 paid_amount = full_amount
                 attrs["payment_type"] = Payment.TYPE_FULL
-            elif self.instance is not None:
-                paid_amount = self.instance.PaidAmount
+                is_full = True
             else:
-                raise serializers.ValidationError({"PaidAmount": "المبلغ المدفوع مطلوب."})
+                paid_amount = self.instance.PaidAmount
         else:
             paid_amount = _to_decimal(paid_amount, "PaidAmount")
 
-        # دفعة كاملة صريحة: المدفوع = الكلي والمتبقي = 0
         if is_full:
             paid_amount = full_amount
             attrs["payment_type"] = Payment.TYPE_FULL
 
         if paid_amount > full_amount:
-            raise serializers.ValidationError("المبلغ المدفوع لا يجوز أن يتجاوز القسط الكلي.")
+            raise serializers.ValidationError(
+                "المبلغ المدفوع لا يجوز أن يتجاوز القسط الكلي."
+            )
 
         attrs["PaidAmount"] = paid_amount
         attrs["Paymentresult"] = full_amount - paid_amount
@@ -166,13 +236,9 @@ class PaymentSerializer(serializers.ModelSerializer):
     def _sync_student_payer(self, payment):
         """تحديث حالة is_payer للطالب عند اكتمال الدفع."""
         student = payment.student
-        if payment.Paymentresult <= 0:
-            if not student.is_payer:
-                student.is_payer = True
-                student.save(update_fields=["is_payer"])
-        elif student.is_payer and payment.Paymentresult > 0:
-            # إن بقي متبقي نُبقي العلم كما هو إلا إذا لم تعد هناك دفعات مكتملة
-            pass
+        if payment.Paymentresult <= 0 and not student.is_payer:
+            student.is_payer = True
+            student.save(update_fields=["is_payer"])
 
     def _apply_amounts(self, instance, validated_data):
         for field, value in validated_data.items():

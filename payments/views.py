@@ -35,17 +35,25 @@ class PaymentViewSet(viewsets.ModelViewSet):
         """
         زر دفعة كاملة:
         POST /api/payments/full/
-        جسم مثال:
-        {"student": "<uuid>", "FullAmount": "1000"}
-        أو {"special_number": "22", "FullAmount": "1000"}
         """
-        payload = request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
+        payload = dict(request.data.items()) if hasattr(request.data, "items") else dict(request.data)
         payload["payment_type"] = Payment.TYPE_FULL
-        # إن وُجد القسط الكلي ولم يُرسل المدفوع نعبّئه تلقائياً في الـ Serializer
         serializer = self.get_serializer(data=payload)
         serializer.is_valid(raise_exception=True)
         payment = serializer.save()
         return Response(self.get_serializer(payment).data, status=status.HTTP_201_CREATED)
+
+    def create(self, request, *args, **kwargs):
+        """إنشاء دفعة مع رسالة خطأ أوضح عند فشل زر الدفعة الكاملة."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payment = serializer.save()
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            self.get_serializer(payment).data,
+            status=status.HTTP_201_CREATED,
+            headers=headers,
+        )
 
     @action(detail=True, methods=["post"], url_path="pay-full")
     def pay_remaining_full(self, request, pk=None):
