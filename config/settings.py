@@ -78,6 +78,8 @@ INSTALLED_APPS = [
 
 # سلسلة الوسطاء بالترتيب المطلوب أمنياً
 MIDDLEWARE = [
+    # أولاً: ثبّت HTTPS خلف الـ proxy قبل SecurityMiddleware حتى لا يُفقد جسم POST
+    "core.middleware.ForceHttpsBehindProxyMiddleware",
     # أمان Django الأساسي (HSTS و XSS headers حسب الإعدادات)
     "django.middleware.security.SecurityMiddleware",
     # CORS قبل CommonMiddleware حتى تُعالَج preflight
@@ -253,6 +255,10 @@ SESSION_COOKIE_DOMAIN = _session_domain or None
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 SECURE_BROWSER_XSS_FILTER = True
+# Render/nginx ينهي SSL ثم يمرّر HTTP داخلياً — بدون هذا يصبح is_secure()=False
+# فيُعاد توجيه POST إلى HTTPS بـ 301 ويضيع جسم الدفع (زر الدفع يفشل صامتاً).
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
 if not DEBUG and IS_HTTPS:
     # إعادة توجيه HTTP إلى HTTPS في الإنتاج فقط بعد SSL
     SECURE_SSL_REDIRECT = True
@@ -299,7 +305,8 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
-    "AUTH_HEADER_TYPES": ("Bearer",),
+    # Bearer القياسي + Token/JWT لأن بعض واجهات الفرونت تستخدمهما
+    "AUTH_HEADER_TYPES": ("Bearer", "Token", "JWT"),
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
     "TOKEN_OBTAIN_SERIALIZER": "accounts.serializers.CustomTokenObtainPairSerializer",

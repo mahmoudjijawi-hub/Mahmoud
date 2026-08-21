@@ -572,6 +572,37 @@ class PostmanAPITests(TestCase):
         self.assertTrue(eighth.is_payer)
         self.assertTrue(Payment.objects.filter(student=eighth, Paymentresult=0).exists())
 
+        # 10) PaidAmount فارغ كنص — خطأ شائع من نماذج الفرونت
+        ninth = self._make_student("786")
+        empty_paid = self.client.post(
+            "/api/payments/",
+            {
+                "student": "786",
+                "FullAmount": "600",
+                "PaidAmount": "",
+                "Paymentresult": "",
+                "payment_type": "full",
+            },
+            format="json",
+        )
+        self.assertEqual(empty_paid.status_code, 201, empty_paid.data)
+        self.assertEqual(Decimal(empty_paid.data["PaidAmount"]), Decimal("600.00"))
+
+    def test_payment_post_not_redirected_when_https_flag_set(self):
+        """خلف Render: IS_HTTPS لا يجب أن يحوّل POST الدفع إلى 301."""
+        from django.test import override_settings
+
+        student = self._make_student("787")
+        with override_settings(DEBUG=False, IS_HTTPS=True, SECURE_SSL_REDIRECT=True):
+            response = self.client.post(
+                "/api/payments/",
+                {"student": "787", "FullAmount": "100", "PaidAmount": ""},
+                format="json",
+                secure=False,
+            )
+        self.assertNotEqual(response.status_code, 301, response.get("Location"))
+        self.assertEqual(response.status_code, 201, getattr(response, "data", response.content))
+
     def test_time_table_post_patch_delete(self):
         """طلبات time table post و time table putch و time table delete."""
         student = self._make_student("557")

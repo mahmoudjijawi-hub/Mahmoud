@@ -1,6 +1,7 @@
 """وسطاء الاشتراك وجلسة المدير الواحدة وإصلاح مسار الـ API."""
 from datetime import date
 
+from django.conf import settings
 from django.http import JsonResponse
 from django.contrib.auth import logout
 
@@ -13,6 +14,26 @@ _EXEMPT_PREFIXES = (
     "/static",
     "/media",
 )
+
+
+class ForceHttpsBehindProxyMiddleware:
+    """
+    يضمن اعتبار الطلب HTTPS خلف Render/nginx عندما IS_HTTPS=True.
+    يمنع SecurityMiddleware من إرجاع 301 على POST /api/payments فيضيع الجسم
+    ويفشل زر الدفع في المتصفح.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if getattr(settings, "IS_HTTPS", False):
+            forwarded = (request.META.get("HTTP_X_FORWARDED_PROTO") or "").split(",")[0].strip()
+            if forwarded != "https":
+                request.META["HTTP_X_FORWARDED_PROTO"] = "https"
+            # بعض الإصدارات تقرأ wsgi.url_scheme مباشرة
+            request.META["wsgi.url_scheme"] = "https"
+        return self.get_response(request)
 
 
 class ApiTrailingSlashMiddleware:
