@@ -144,6 +144,37 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response.data["code"], "invalid_credentials")
         self.assertIn("detail", response.data)
 
+    def test_self_heal_admin_login_when_password_hash_broken(self):
+        """إن تلفت كلمة مرور المدير تُصلح تلقائياً عند إدخال بيانات البوستمان."""
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user = User.objects.get(username="ammar")
+        # محاكاة هاش تالف كما كانت الهجرة القديمة
+        user.password = "!"
+        user.save(update_fields=["password"])
+        client = APIClient()
+        response = client.post(
+            "/api/token/",
+            {"username": "ammar", "password": "ammar12345ammar"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["role"], "manager")
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("ammar12345ammar"))
+
+    def test_login_accepts_frontend_field_aliases(self):
+        """قبول أسماء حقول شائعة يرسلها الفرونت بدل username/password فقط."""
+        client = APIClient()
+        response = client.post(
+            "/api/token/",
+            {"userName": "ammar", "Password": "ammar12345ammar"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["role"], "manager")
+
     def test_migration_sets_usable_admin_password(self):
         """بعد الهجرات يجب أن تنجح بيانات المدير الافتراضية من الإعدادات."""
         from django.conf import settings
