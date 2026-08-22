@@ -95,7 +95,7 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         # لا يوجد شطب ناعم: الحذف نهائي، فكل سجل موجود هو سجل فعّال
-        qs = Student.objects.select_related("user").order_by(
+        qs = Student.objects.select_related("user").prefetch_related("subjects").order_by(
             "first_name", "last_name", "special_number"
         )
         user = self.request.user

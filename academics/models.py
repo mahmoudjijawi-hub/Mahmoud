@@ -122,6 +122,12 @@ class Student(models.Model):
     class1 = models.CharField(max_length=30, blank=True, default="", verbose_name="مادة 1")
     class2 = models.CharField(max_length=30, blank=True, default="", verbose_name="مادة 2")
     class3 = models.CharField(max_length=30, blank=True, default="", verbose_name="مادة 3")
+    subjects = models.ManyToManyField(
+        Subject,
+        blank=True,
+        related_name="students",
+        verbose_name="المواد",
+    )
     stage = models.ForeignKey(
         Stage,
         on_delete=models.SET_NULL,
@@ -138,6 +144,7 @@ class Student(models.Model):
         related_name="students",
         verbose_name="الشعبة",
     )
+
     class Meta:
         verbose_name = "طالب"
         verbose_name_plural = "الطلاب"
