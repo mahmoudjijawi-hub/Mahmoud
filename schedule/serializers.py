@@ -8,7 +8,7 @@ from schedule.models import TimeTable, Program
 class TimeTableSerializer(serializers.ModelSerializer):
     student = serializers.PrimaryKeyRelatedField(
         many=True,
-        queryset=Student.objects.filter(is_active=True),
+        queryset=Student.objects.all(),
     )
     Day = serializers.DateField()
     Hour = serializers.TimeField()

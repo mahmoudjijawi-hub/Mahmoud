@@ -313,6 +313,48 @@ class PostmanAPITests(TestCase):
         delete = self.client.delete(f"/api/students/{student_id}/")
         self.assertEqual(delete.status_code, 204)
         self.assertFalse(Student.objects.filter(pk=student_id).exists())
+        # الحذف نهائي: حساب المستخدم يُحذف أيضاً ولا يبقى شطب ناعم
+        self.assertFalse(User.objects.filter(special_number="112").exists())
+
+    def test_delete_student_is_permanent_everywhere(self):
+        """الحذف يزيل الطالب وحسابه ودفعاته من قاعدة البيانات نهائياً."""
+        student = self._make_student("9099")
+        pay = self.client.post(
+            "/api/payments/",
+            {"student": "9099", "FullAmount": "500"},
+            format="json",
+        )
+        self.assertIn(pay.status_code, (200, 201), pay.data)
+        self.assertTrue(Payment.objects.filter(student=student).exists())
+
+        delete = self.client.delete(f"/api/students/{student.id}/")
+        self.assertEqual(delete.status_code, 204)
+        self.assertFalse(Student.objects.filter(pk=student.id).exists())
+        self.assertFalse(User.objects.filter(special_number="9099").exists())
+        self.assertFalse(Payment.objects.filter(student_id=student.id).exists())
+        # الرقم متاح فوراً لطالب جديد
+        recreate = self._make_student("9099")
+        self.assertIsNotNone(recreate.pk)
+
+    def test_cors_preflight_allows_authorization_header(self):
+        """
+        preflight يجب أن يذكر Authorization صراحة؛ البدل "*" مرفوض من المتصفح
+        مع Allow-Credentials فيبدو زر الدفع وكأنه لا يعمل.
+        """
+        response = self.client.options(
+            "/api/payments/",
+            HTTP_ORIGIN="https://frontend.example.com",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="authorization,content-type",
+        )
+        self.assertEqual(response.status_code, 200)
+        allow_headers = response["access-control-allow-headers"].lower()
+        allow_methods = response["access-control-allow-methods"].upper()
+        self.assertNotEqual(allow_headers.strip(), "*")
+        self.assertIn("authorization", allow_headers)
+        self.assertIn("content-type", allow_headers)
+        self.assertIn("POST", allow_methods)
+        self.assertIn("DELETE", allow_methods)
 
     def test_reuse_special_number_after_hard_delete(self):
         """بعد حذف طالب نهائياً برقم 22 يمكن إنشاء طالب جديد بنفس الرقم."""
@@ -750,7 +792,7 @@ class PostmanAPITests(TestCase):
         أرقام مثل 1 و333 المحجوزة لطلاب محذوفين ناعماً يجب أن تُحرَّر.
         الأرقام العربية ٣٣٣ تُقبل وتُحفظ لاتينياً.
         """
-        # محاكاة بقايا soft-delete كما في Neon
+        # محاكاة بقايا حسابات معطّلة كما في Neon
         for num in ("1", "333"):
             stale_user = User.objects.create_user(
                 username=f"s{num}",
@@ -762,19 +804,6 @@ class PostmanAPITests(TestCase):
             )
             stale_user.is_active = False
             stale_user.save(update_fields=["is_active"])
-            Student.objects.create(
-                user=stale_user,
-                first_name="قديم",
-                last_name="محذوف",
-                special_number=num,
-                student_class="1",
-                parent_number="1234567890",
-                student_number="1234567890",
-                address="قديم",
-                personal_notes="",
-                is_payer=False,
-                is_active=False,
-            )
 
         payload = {
             "first_name": "جديد",

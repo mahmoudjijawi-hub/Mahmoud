@@ -9,7 +9,7 @@ from grades.models import Exam
 class ExamSerializer(serializers.ModelSerializer):
     student = serializers.PrimaryKeyRelatedField(
         many=True,
-        queryset=Student.objects.filter(is_active=True),
+        queryset=Student.objects.all(),
     )
     special_number = FlexibleCharField(max_length=10)
     Nameofexam = serializers.CharField(max_length=80)

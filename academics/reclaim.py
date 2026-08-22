@@ -1,4 +1,4 @@
-"""تحرير الأرقام المميزة وأسماء المستخدم المحجوزة لسجلات غير نشطة."""
+"""تحرير الأرقام المميزة وأسماء المستخدم المحجوزة قبل إنشاء طالب/أستاذ."""
 import uuid
 
 from django.db import transaction
@@ -16,66 +16,53 @@ def reclaim_special_number(
     exclude_user_id=None,
 ):
     """
-    يحذف نهائياً أي طالب/أستاذ/مستخدم غير نشط يحجز الرقم أو username s{n}/t{n}.
-    إن كان الرقم مستخدماً لحساب نشط (غير المستثنى) يُرجع False.
+    يحذف نهائياً أي مستخدم معطّل يحجز الرقم أو اسم المستخدم s{n}/t{n}.
+    إن كان الرقم مستخدماً لسجل حقيقي (غير المستثنى) يُرجع False.
     """
     special = str(special).strip()
     if not special:
         return True
 
-    active_users = CustomUser.objects.filter(special_number=special, is_active=True)
+    # حسابات معطّلة قديمة تحجز الرقم: تُحذف نهائياً
+    _purge_disabled_users(CustomUser.objects.filter(special_number=special, is_active=False))
+
+    taken_users = CustomUser.objects.filter(special_number=special)
     if exclude_user_id:
-        active_users = active_users.exclude(pk=exclude_user_id)
-    if active_users.exists():
+        taken_users = taken_users.exclude(pk=exclude_user_id)
+    if taken_users.exists():
         return False
 
-    active_students = Student.objects.filter(special_number=special, is_active=True)
+    taken_students = Student.objects.filter(special_number=special)
     if exclude_student_id:
-        active_students = active_students.exclude(pk=exclude_student_id)
-    if active_students.exists():
+        taken_students = taken_students.exclude(pk=exclude_student_id)
+    if taken_students.exists():
         return False
 
     if role == "teacher":
-        teachers = Teacher.objects.filter(special_number=special).select_related("user")
+        teachers = Teacher.objects.filter(special_number=special)
         if exclude_teacher_id:
             teachers = teachers.exclude(pk=exclude_teacher_id)
-        for teacher in teachers:
-            if teacher.user.is_active:
-                return False
+        if teachers.exists():
+            return False
 
-    # طلاب غير نشطين ما زالوا يحملون الرقم (بقايا soft-delete)
-    for student in Student.objects.filter(special_number=special, is_active=False).select_related(
-        "user"
-    ):
-        user = student.user
-        student.delete()
-        if user is not None:
-            CustomUser.objects.filter(pk=user.pk, is_active=False).delete()
-
-    # مستخدمون غير نشطين بنفس الرقم
-    CustomUser.objects.filter(special_number=special, is_active=False).delete()
-
-    # username محجوز من حسابات قديمة غير نشطة
+    # اسم مستخدم محجوز من حساب معطّل قديم
     prefix = "t" if role == "teacher" else "s"
-    username = f"{prefix}{special}"[:25]
-    for user in list(CustomUser.objects.filter(username=username, is_active=False)):
-        if hasattr(user, "student_profile"):
-            try:
-                user.student_profile.delete()
-            except Exception:
-                pass
-        if hasattr(user, "teacher_profile"):
-            try:
-                user.teacher_profile.delete()
-            except Exception:
-                pass
-        user.delete()
-
+    _purge_disabled_users(
+        CustomUser.objects.filter(username=f"{prefix}{special}"[:25], is_active=False)
+    )
     return True
 
 
+def _purge_disabled_users(queryset):
+    """حذف نهائي لمستخدمين معطّلين مع ملفاتهم المرتبطة."""
+    for user in list(queryset.exclude(role=CustomUser.ROLE_MANAGER)):
+        Student.objects.filter(user=user).delete()
+        Teacher.objects.filter(user=user).delete()
+        user.delete()
+
+
 def allocate_username(prefix, special):
-    """اسم مستخدم فريد: s12 أو s12_ab12cd إن كان محجوزاً."""
+    """اسم مستخدم فريد: s12 أو s12_ab12 إن كان محجوزاً."""
     base = f"{prefix}{special}"[:25]
     if not CustomUser.objects.filter(username=base).exists():
         return base

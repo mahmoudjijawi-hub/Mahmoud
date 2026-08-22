@@ -28,7 +28,17 @@ class TeacherViewSet(viewsets.ModelViewSet):
     serializer_class = TeacherSerializer
     permission_classes = (IsManagerOrReadOnlyAuthenticated,)
     queryset = Teacher.objects.select_related("user").all()
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    http_method_names = ["get", "post", "patch", "put", "delete", "head", "options"]
+
+    def perform_destroy(self, instance):
+        """حذف نهائي للأستاذ وحسابه حتى يتحرر الرقم المميز."""
+        from django.db import transaction
+
+        user = instance.user
+        with transaction.atomic():
+            instance.delete()
+            if user is not None and getattr(user, "pk", None):
+                type(user).objects.filter(pk=user.pk).delete()
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -68,8 +78,8 @@ class StudentViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "put", "delete", "head", "options"]
 
     def get_queryset(self):
-        # الشطب الناعم: نخفي غير النشطين من القوائم
-        qs = Student.objects.select_related("user").filter(is_active=True).order_by(
+        # لا يوجد شطب ناعم: الحذف نهائي، فكل سجل موجود هو سجل فعّال
+        qs = Student.objects.select_related("user").order_by(
             "first_name", "last_name", "special_number"
         )
         user = self.request.user
@@ -183,23 +193,17 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         """
-        حذف نهائي من قاعدة البيانات (الطالب + حساب المستخدم).
-        السجلات المرتبطة (دفعات/حضور...) تُحذف عبر CASCADE أو تُفك ارتباطها.
-        الرقم المميز يصبح متاحاً فوراً لإعادة الاستخدام.
+        حذف نهائي من قاعدة البيانات: الطالب + حساب المستخدم + السجلات التابعة.
+        الرقم المميز واسم المستخدم يتحرران فوراً لإعادة الاستخدام.
         """
         from django.db import transaction
 
         user = instance.user
         with transaction.atomic():
-            # حذف الطالب أولاً ثم المستخدم حتى لا يبقى حساب يتيم
             instance.delete()
-            # قد يُحذف المستخدم تلقائياً إن وُجدت إشارات؛ نتحقق
             if user is not None and getattr(user, "pk", None):
-                try:
-                    user.refresh_from_db()
-                except user.__class__.DoesNotExist:
-                    return
-                user.delete()
+                # حذف الحساب حتى لا يبقى username/special_number محجوزاً
+                type(user).objects.filter(pk=user.pk).delete()
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()

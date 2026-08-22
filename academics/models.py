@@ -138,9 +138,6 @@ class Student(models.Model):
         related_name="students",
         verbose_name="الشعبة",
     )
-    # شطب ناعم للحفاظ على السجلات التاريخية
-    is_active = models.BooleanField(default=True, verbose_name="نشط")
-
     class Meta:
         verbose_name = "طالب"
         verbose_name_plural = "الطلاب"

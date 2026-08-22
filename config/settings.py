@@ -229,9 +229,29 @@ else:
 CORS_ALLOW_ALL_ORIGINS = env("CORS_ALLOW_ALL_ORIGINS")
 # السماح بحمل التوكن من الواجهة الأمامية إن لزم
 CORS_ALLOW_CREDENTIALS = True
-# السماح بكل الرؤوس والطرق حتى لا تُحجب طلبات الفرونت (preflight)
-CORS_ALLOW_HEADERS = ["*"]
-CORS_ALLOW_METHODS = ["*"]
+# ممنوع "*" هنا: مع Allow-Credentials يرفض المتصفح البدل الشامل ويحجب
+# كل طلب يحمل Authorization (preflight يفشل فيبدو الزر وكأنه لا يعمل).
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "accept-language",
+    "authorization",
+    "cache-control",
+    "content-type",
+    "content-disposition",
+    "dnt",
+    "if-modified-since",
+    "keep-alive",
+    "origin",
+    "pragma",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+    "ngrok-skip-browser-warning",
+]
+CORS_ALLOW_METHODS = ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT", "HEAD"]
+# رؤوس يستطيع الفرونت قراءتها من الاستجابة
+CORS_EXPOSE_HEADERS = ["content-type", "content-disposition"]
 
 # الواجهة الأمامية تعتمد JWT: لا نعطّل CSRF عالمياً لأن /admin/ يحتاجه.
 # مسارات API تستخدم JWTAuthentication وليست SessionAuthentication، لذلك لا تُفرض CSRF عليها.
