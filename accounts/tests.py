@@ -83,6 +83,44 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response.data["accessToken"], response.data["access"])
         self.assertEqual(response.data["user"]["role"], "manager")
 
+    def test_session_idle_timeout_is_one_hour_and_slides_on_activity(self):
+        """الجلسة تُغلق بعد ساعة خمول وتتجدد مع كل طلب."""
+        from datetime import timedelta
+
+        from django.conf import settings
+        from django.utils import timezone
+
+        self.assertEqual(settings.SESSION_IDLE_SECONDS, 3600)
+        self.assertEqual(settings.SESSION_COOKIE_AGE, 3600)
+        self.assertTrue(settings.SESSION_SAVE_EVERY_REQUEST)
+        self.assertEqual(settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"], timedelta(days=7))
+
+        self.user.refresh_from_db()
+        self.assertIsNotNone(self.user.last_activity)
+
+        ok = self.client.get("/api/managers/")
+        self.assertEqual(ok.status_code, 200)
+
+        self.user.last_activity = timezone.now() - timedelta(hours=1, minutes=1)
+        self.user.save(update_fields=["last_activity"])
+        idle = self.client.get("/api/managers/")
+        self.assertEqual(idle.status_code, 401)
+
+        self.user.last_activity = timezone.now() - timedelta(minutes=10)
+        self.user.save(update_fields=["last_activity"])
+        active = self.client.get("/api/managers/")
+        self.assertEqual(active.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertLess((timezone.now() - self.user.last_activity).total_seconds(), 30)
+
+        self.user.last_activity = timezone.now() - timedelta(hours=1, minutes=1)
+        self.user.save(update_fields=["last_activity"])
+        client = APIClient()
+        refresh_idle = client.post(
+            "/api/token/refresh/", {"refresh": self.refresh}, format="json"
+        )
+        self.assertEqual(refresh_idle.status_code, 401)
+
     def test_manager_special_number_routes_to_password_page(self):
         """الرقم المميز للمدير يعيد 200 مع requires_password حتى ينتقل الفرونت لصفحة المرور."""
         client = APIClient()

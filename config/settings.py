@@ -310,8 +310,9 @@ CORS_EXPOSE_HEADERS = ["content-type", "content-disposition"]
 # مسارات API تستخدم JWTAuthentication وليست SessionAuthentication، لذلك لا تُفرض CSRF عليها.
 CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
 
-# جلسة المدير: 30 دقيقة خمول، وتجديد العداد مع كل طلب
-SESSION_COOKIE_AGE = 30 * 60
+# جلسة المدير والـ API: ساعة خمول، والنشاط يجدّد المهلة فلا تُغلق أثناء الاستخدام
+SESSION_IDLE_SECONDS = 60 * 60
+SESSION_COOKIE_AGE = SESSION_IDLE_SECONDS
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 # كوكي آمن فقط عند HTTPS الفعلي لتفادي حلقة إعادة توجيه /admin/ على HTTP
@@ -370,11 +371,11 @@ REST_FRAMEWORK = {
     ),
 }
 
-# JWT: صلاحية قصيرة للوصول وإمكانية إبطال التحديث
+# JWT: الخمول يُغلق بعد ساعة؛ التوكن نفسه أطول حتى لا تُقطع الجلسة أثناء العمل
 from datetime import timedelta  # noqa: E402
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=7),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
@@ -383,6 +384,7 @@ SIMPLE_JWT = {
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
     "TOKEN_OBTAIN_SERIALIZER": "accounts.serializers.CustomTokenObtainPairSerializer",
+    "TOKEN_REFRESH_SERIALIZER": "accounts.serializers.IdleAwareTokenRefreshSerializer",
 }
 
 # بيانات المدير الأولي من البيئة — ليست hardcoded

@@ -6,11 +6,12 @@ from django.contrib.auth import authenticate
 from django.db import transaction
 from rest_framework import serializers
 from rest_framework.exceptions import APIException
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from accounts.models import CustomUser, Manager, LoginLog
 from accounts.bootstrap import ensure_admin_credentials, KNOWN_ADMIN_PASSWORDS
+from accounts.idle import enforce_idle_or_touch, touch_activity
 from core.fields import FlexibleCharField
 
 # مسجّل محاولات الدخول دون كتابة الرقم المميز أو كلمة المرور
@@ -94,6 +95,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def _token_payload(self, user):
         """شكل استجابة الدخول الذي تعتمد عليه الواجهة للتوجيه بعد كلمة المرور."""
+        touch_activity(user)
         refresh = self.get_token(user)
         access = str(refresh.access_token)
         return {
@@ -228,6 +230,21 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 "code": "manager_password_required",
             }
         return self._token_payload(user)
+
+
+class IdleAwareTokenRefreshSerializer(TokenRefreshSerializer):
+    """تجديد التوكن يفشل بعد ساعة خمول، ويتجدد عداد النشاط إن كانت الجلسة حيّة."""
+
+    def validate(self, attrs):
+        refresh = self.token_class(attrs["refresh"])
+        user_id = refresh.payload.get("user_id")
+        user = CustomUser.objects.filter(pk=user_id).first()
+        if user is None:
+            from rest_framework_simplejwt.exceptions import InvalidToken
+
+            raise InvalidToken("انتهت الجلسة. يرجى تسجيل الدخول مجدداً")
+        enforce_idle_or_touch(user)
+        return super().validate(attrs)
 
 
 class ManagerSerializer(serializers.ModelSerializer):
