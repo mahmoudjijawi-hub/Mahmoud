@@ -410,13 +410,19 @@ class StudentSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def update(self, instance, validated_data):
         raw = getattr(self, "initial_data", {}) or {}
+        was_payer = instance.is_payer
         became_payer = (
             "is_payer" in validated_data
             and validated_data.get("is_payer") is True
-            and not instance.is_payer
+            and not was_payer
         )
         # زر الدفع قد يرسل مبلغاً مع is_payer=true حتى لو كان مسدداً مسبقاً
         force_pay = validated_data.get("is_payer") is True and self._extract_amount(raw) is not None
+        lost_payer = (
+            "is_payer" in validated_data
+            and validated_data.get("is_payer") is False
+            and was_payer
+        )
         for field, value in validated_data.items():
             setattr(instance, field, value)
         instance.save()
@@ -431,6 +437,10 @@ class StudentSerializer(serializers.ModelSerializer):
             if not instance.is_payer:
                 instance.is_payer = True
                 instance.save(update_fields=["is_payer"])
+        if lost_payer:
+            from payments.services import reset_student_payments
+
+            reset_student_payments(instance)
         return instance
 
     def to_representation(self, instance):

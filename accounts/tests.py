@@ -80,6 +80,7 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response.data["user_type"], "1")
         self.assertEqual(response.data["username"], "ammar")
         self.assertEqual(response.data["token"], response.data["access"])
+        self.assertEqual(response.data["accessToken"], response.data["access"])
         self.assertEqual(response.data["user"]["role"], "manager")
 
     def test_manager_special_number_routes_to_password_page(self):
@@ -230,10 +231,10 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_api_for_students(self):
-        """طلب api for students: GET /api/students/"""
+        """طلب api for students: GET /api/students/ — الواجهة تتوقع مصفوفة."""
         response = self.client.get("/api/students/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("results", response.data)
+        self.assertIsInstance(response.data, list, response.data)
 
     def test_add_teacher_and_patch(self):
         """طلب add teacher ثم patch tetcher."""
@@ -362,7 +363,22 @@ class PostmanAPITests(TestCase):
         self.assertIn("authorization", allow_headers)
         self.assertIn("content-type", allow_headers)
         self.assertIn("POST", allow_methods)
+        self.assertIn("PUT", allow_methods)
+        self.assertIn("PATCH", allow_methods)
         self.assertIn("DELETE", allow_methods)
+
+        put_preflight = self.client.options(
+            "/api/students/00000000-0000-0000-0000-000000000001/",
+            HTTP_ORIGIN="https://frontend.example.com",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="PUT",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="authorization,content-type,ngrok-skip-browser-warning",
+        )
+        self.assertEqual(put_preflight.status_code, 200)
+        put_headers = put_preflight["access-control-allow-headers"].lower()
+        put_methods = put_preflight["access-control-allow-methods"].upper()
+        self.assertIn("authorization", put_headers)
+        self.assertIn("ngrok-skip-browser-warning", put_headers)
+        self.assertIn("PUT", put_methods)
 
     def test_reuse_special_number_after_hard_delete(self):
         """بعد حذف طالب نهائياً برقم 22 يمكن إنشاء طالب جديد بنفس الرقم."""
@@ -757,6 +773,69 @@ class PostmanAPITests(TestCase):
         self.assertNotEqual(response.status_code, 301, response.get("Location"))
         self.assertIn(response.status_code, (200, 201), getattr(response, "data", response.content))
 
+    def test_frontend_confirm_payment_and_reset_put(self):
+        """يطابق كود الواجهة حرفياً: search ثم confirm-payment، وPUT is_payer=false."""
+        student = self._make_student("8801")
+        other = self._make_student("8802")
+        self.client.post(
+            "/api/payments/",
+            {"special_number": "8801", "FullAmount": "400", "PaidAmount": "100"},
+            format="json",
+        )
+
+        search = self.client.get("/api/students/?search=8801")
+        self.assertEqual(search.status_code, 200)
+        self.assertIsInstance(search.data, list, search.data)
+        self.assertGreaterEqual(len(search.data), 1)
+        self.assertEqual(str(search.data[0]["special_number"]), "8801")
+        found_id = search.data[0]["id"]
+
+        confirm = self.client.post(f"/api/students/{found_id}/confirm-payment/", {}, format="json")
+        self.assertEqual(confirm.status_code, 200, confirm.data)
+        student.refresh_from_db()
+        self.assertTrue(student.is_payer)
+
+        listing = self.client.get("/api/students/")
+        self.assertEqual(listing.status_code, 200)
+        self.assertIsInstance(listing.data, list, listing.data)
+        self.assertGreaterEqual(len(listing.data), 2)
+
+        reset_put = self.client.put(
+            f"/api/students/{found_id}/",
+            {
+                "is_payer": False,
+                "first_name": student.first_name,
+                "last_name": student.last_name,
+                "special_number": student.special_number,
+                "student_class": student.student_class,
+            },
+            format="json",
+        )
+        self.assertEqual(reset_put.status_code, 200, reset_put.data)
+        student.refresh_from_db()
+        self.assertFalse(student.is_payer)
+
+        student.is_payer = True
+        student.save(update_fields=["is_payer"])
+        bulk = self.client.post("/api/students/reset-all-payments/", {}, format="json")
+        self.assertEqual(bulk.status_code, 200, bulk.data)
+        student.refresh_from_db()
+        other.refresh_from_db()
+        self.assertFalse(student.is_payer)
+        self.assertFalse(other.is_payer)
+
+        # جسم فارغ لطالب بلا قسط مسجّل — الواجهة ترسل POST {} فقط
+        confirm_empty = self.client.post(
+            f"/api/students/{other.id}/confirm-payment/", {}, format="json"
+        )
+        self.assertEqual(confirm_empty.status_code, 200, confirm_empty.data)
+        other.refresh_from_db()
+        self.assertTrue(other.is_payer)
+
+        paged = self.client.get("/api/students/?page=1")
+        self.assertEqual(paged.status_code, 200)
+        self.assertIn("results", paged.data)
+
     def test_time_table_post_patch_delete(self):
         """طلبات time table post و time table putch و time table delete."""
         student = self._make_student("557")
@@ -857,7 +936,11 @@ class PostmanAPITests(TestCase):
         self._make_student("1010")
         response = self.client.get("/api/students/?special_number=1010")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["count"], 1)
+        payload = response.data
+        if isinstance(payload, dict) and "results" in payload:
+            self.assertEqual(payload["count"], 1)
+        else:
+            self.assertEqual(len(payload), 1)
 
     def test_search_student_by_all_frontend_patterns(self):
         """البحث بالرقم المميز يعمل بكل أنماط الفرونت الشائعة."""
@@ -876,8 +959,14 @@ class PostmanAPITests(TestCase):
         for url in cases:
             response = self.client.get(url)
             self.assertEqual(response.status_code, 200, url)
-            self.assertGreaterEqual(response.data["count"], 1, url)
-            numbers = {str(row["special_number"]) for row in response.data["results"]}
+            payload = response.data
+            if isinstance(payload, dict) and "results" in payload:
+                rows = payload["results"]
+                self.assertGreaterEqual(payload["count"], 1, url)
+            else:
+                rows = payload
+                self.assertGreaterEqual(len(rows), 1, url)
+            numbers = {str(row["special_number"]) for row in rows}
             self.assertIn("22", numbers, url)
 
         detail = self.client.get("/api/students/22/")
