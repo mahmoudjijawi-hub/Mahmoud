@@ -1,5 +1,6 @@
 """خدمة دفع موحّدة لزر الدفع — إنشاء أو إكمال دفعة كاملة."""
 import json
+from decimal import Decimal
 
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
@@ -125,10 +126,22 @@ def execute_payment(payload, force_full=False):
         return open_payment, PaymentSerializer(open_payment).data
 
     if full_amount is None:
+        # لا يوجد قسط مفتوح: إن كانت كل دفعاته مسدّدة نُعيد الحالة بنجاح
+        # بدل خطأ، فالزر يعني «سدّد المتبقي» والمتبقي صفر أصلاً.
+        settled = Payment.objects.filter(student=student).order_by("-created_at").first()
+        if settled is not None:
+            data = PaymentSerializer(settled).data
+            data["message"] = "لا يوجد مبلغ مستحق — الحساب مسدّد بالكامل"
+            data["detail"] = data["message"]
+            data["already_paid"] = True
+            return settled, data
         raise ValidationError(
             {
-                "FullAmount": "القسط الكلي مطلوب لإتمام الدفع.",
-                "detail": "أرسل FullAmount أو PaidAmount مع رقم/معرف الطالب.",
+                "FullAmount": "أدخل قيمة القسط الكلي أولاً.",
+                "detail": (
+                    f"لا توجد دفعات مسجّلة للطالب صاحب الرقم {student.special_number}. "
+                    "أرسل FullAmount مع الرقم المميز لإنشاء الدفعة."
+                ),
             }
         )
 
@@ -149,3 +162,83 @@ def execute_payment(payload, force_full=False):
     serializer.is_valid(raise_exception=True)
     payment = serializer.save()
     return payment, PaymentSerializer(payment).data
+
+
+def student_payment_summary(student):
+    """ملخّص يملأ شاشة المدفوعات فور إدخال الرقم المميز."""
+    payments = list(Payment.objects.filter(student=student).order_by("-created_at"))
+    total_full = sum((p.FullAmount for p in payments), Decimal("0"))
+    total_paid = sum((p.PaidAmount for p in payments), Decimal("0"))
+    remaining = total_full - total_paid
+    latest = payments[0] if payments else None
+    return {
+        "success": True,
+        "found": True,
+        "student": {
+            "id": str(student.id),
+            "first_name": student.first_name,
+            "last_name": student.last_name,
+            "student_name": f"{student.first_name} {student.last_name}".strip(),
+            "special_number": student.special_number,
+            "student_class": student.student_class,
+            "parent_number": student.parent_number,
+            "student_number": student.student_number,
+            "address": student.address,
+            "is_payer": student.is_payer,
+        },
+        # الحقول المسطّحة تسهّل ربط الواجهة مباشرة بحقول النموذج
+        "first_name": student.first_name,
+        "last_name": student.last_name,
+        "student_name": f"{student.first_name} {student.last_name}".strip(),
+        "special_number": student.special_number,
+        "student_class": student.student_class,
+        "parent_number": student.parent_number,
+        "student_number": student.student_number,
+        "is_payer": student.is_payer,
+        "FullAmount": str(latest.FullAmount) if latest else "0.00",
+        "PaidAmount": str(latest.PaidAmount) if latest else "0.00",
+        "Paymentresult": str(latest.Paymentresult) if latest else "0.00",
+        "payment_type": latest.payment_type if latest else "",
+        "status": latest.status if latest else "",
+        "payment_id": str(latest.id) if latest else None,
+        "total_full_amount": str(total_full),
+        "total_paid_amount": str(total_paid),
+        "total_remaining": str(remaining),
+        "payments_count": len(payments),
+        "payments": [PaymentSerializer(p).data for p in payments],
+    }
+
+
+@transaction.atomic
+def reset_student_payments(student, payments=None):
+    """
+    تصفير الدفع: إرجاع المدفوع إلى صفر مع بقاء القسط الكلي،
+    فيعود الطالب غير مسدّد وتُسجَّل حركة مالية عكسية للتدقيق.
+    """
+    if payments is None:
+        payments = list(Payment.objects.select_for_update().filter(student=student))
+    reset_count = 0
+    for payment in payments:
+        old_paid = payment.PaidAmount
+        if old_paid == 0:
+            continue
+        payment.PaidAmount = Decimal("0")
+        payment.payment_type = Payment.TYPE_INSTALLMENT
+        payment.recalculate()
+        payment.save()
+        PaymentTransaction.objects.create(
+            payment=payment,
+            amount=-old_paid,
+            note="تصفير الدفع",
+        )
+        reset_count += 1
+
+    if student.is_payer:
+        student.is_payer = False
+        student.save(update_fields=["is_payer"])
+
+    data = student_payment_summary(student)
+    data["reset_count"] = reset_count
+    data["message"] = "تم تصفير الدفع بنجاح"
+    data["detail"] = data["message"]
+    return data

@@ -325,6 +325,30 @@ class PaymentSerializer(serializers.ModelSerializer):
         data["paymentResult"] = data.get("Paymentresult")
         data["student_id"] = data.get("student")
         if instance.student_id:
-            data["special_number"] = instance.student.special_number
-            data["is_payer"] = instance.student.is_payer
+            student = instance.student
+            # بيانات الطالب داخل الدفعة حتى تملأ الواجهة بقية الحقول
+            # بمجرد إدخال الرقم المميز دون طلب إضافي.
+            data["special_number"] = student.special_number
+            data["specialNumber"] = student.special_number
+            data["is_payer"] = student.is_payer
+            data["isPayer"] = student.is_payer
+            data["first_name"] = student.first_name
+            data["last_name"] = student.last_name
+            data["student_name"] = f"{student.first_name} {student.last_name}".strip()
+            data["studentName"] = data["student_name"]
+            data["student_class"] = student.student_class
+            data["studentClass"] = student.student_class
+            data["parent_number"] = student.parent_number
+            data["student_number"] = student.student_number
+            data["student_details"] = {
+                "id": str(student.id),
+                "first_name": student.first_name,
+                "last_name": student.last_name,
+                "special_number": student.special_number,
+                "student_class": student.student_class,
+                "parent_number": student.parent_number,
+                "student_number": student.student_number,
+                "address": student.address,
+                "is_payer": student.is_payer,
+            }
         return data

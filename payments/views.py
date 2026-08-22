@@ -1,6 +1,8 @@
 """واجهة /api/payments/ مع حد معدل خاص ودعم زر الدفعة الكاملة."""
 import logging
+import uuid
 
+from django.http import Http404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -10,10 +12,23 @@ from core.permissions import IsManagerOrReadOnlyAuthenticated
 from core.throttles import PaymentRateThrottle
 from payments.models import Payment
 from payments.parsers import PAYMENT_PARSERS
-from payments.serializers import PaymentSerializer
-from payments.services import execute_payment, extract_raw_payload
+from payments.serializers import PaymentSerializer, _resolve_student, _pick
+from payments.services import (
+    execute_payment,
+    extract_raw_payload,
+    reset_student_payments,
+    student_payment_summary,
+)
 
 logger = logging.getLogger("payments")
+
+
+def _is_uuid(value):
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (TypeError, ValueError, AttributeError):
+        return False
 
 
 class PaymentViewSet(viewsets.ModelViewSet):
@@ -38,6 +53,94 @@ class PaymentViewSet(viewsets.ModelViewSet):
         if special:
             qs = qs.filter(student__special_number=str(special).strip())
         return qs
+
+    def get_object(self):
+        """يقبل معرّف الدفعة (UUID) أو الرقم المميز للطالب مباشرة."""
+        lookup = self.kwargs.get(self.lookup_url_kwarg or self.lookup_field)
+        if lookup and not _is_uuid(lookup):
+            queryset = self.filter_queryset(self.get_queryset())
+            payment = (
+                queryset.filter(student__special_number=str(lookup).strip())
+                .order_by("-created_at")
+                .first()
+            )
+            if payment is None:
+                raise Http404("لا توجد دفعة لهذا الرقم المميز.")
+            self.check_object_permissions(self.request, payment)
+            return payment
+        return super().get_object()
+
+    def _student_from_request(self, request, pk=None):
+        """استخراج الطالب من الجسم أو الاستعلام أو المسار."""
+        payload = extract_raw_payload(request)
+        student = _resolve_student(
+            _pick(payload, "student", "student_id", "studentId")
+            or _pick(payload, "special_number", "specialNumber", "number")
+        )
+        if student is None and pk:
+            student = _resolve_student(pk)
+            if student is None:
+                payment = Payment.objects.filter(pk=pk).first() if _is_uuid(pk) else None
+                student = payment.student if payment else None
+        return student, payload
+
+    @action(detail=False, methods=["get", "post"], url_path="lookup")
+    def lookup(self, request):
+        """
+        بيانات الطالب ومدفوعاته من الرقم المميز:
+        GET /api/payments/lookup/?special_number=333
+        تُستخدم لملء بقية الحقول فور إدخال الرقم.
+        """
+        student, _ = self._student_from_request(request)
+        if student is None:
+            return Response(
+                {
+                    "success": False,
+                    "found": False,
+                    "detail": "لا يوجد طالب بهذا الرقم المميز.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(student_payment_summary(student), status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["get"], url_path="summary")
+    def student_summary(self, request, pk=None):
+        """GET /api/payments/{رقم مميز}/summary/"""
+        student, _ = self._student_from_request(request, pk=pk)
+        if student is None:
+            return Response(
+                {"success": False, "found": False, "detail": "لا يوجد طالب بهذا الرقم المميز."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(student_payment_summary(student), status=status.HTTP_200_OK)
+
+    def _reset_response(self, request, pk=None):
+        student, payload = self._student_from_request(request, pk=pk)
+        if student is None:
+            logger.warning("payment_reset_failed data=%s", payload)
+            return Response(
+                {
+                    "success": False,
+                    "detail": "حدد الطالب بالرقم المميز أو معرّفه لتصفير الدفع.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(reset_student_payments(student), status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post", "put", "patch"], url_path="reset")
+    def reset(self, request):
+        """زر تصفير الدفع: POST /api/payments/reset/ مع special_number"""
+        return self._reset_response(request)
+
+    @action(detail=True, methods=["post", "put", "patch"], url_path="reset")
+    def reset_detail(self, request, pk=None):
+        """POST /api/payments/{رقم مميز أو معرّف}/reset/"""
+        return self._reset_response(request, pk=pk)
+
+    @action(detail=False, methods=["post", "put", "patch"], url_path="zero")
+    def zero(self, request):
+        """مرادف: POST /api/payments/zero/"""
+        return self._reset_response(request)
 
     def _pay_response(self, request, force_full=False):
         payload = extract_raw_payload(request)

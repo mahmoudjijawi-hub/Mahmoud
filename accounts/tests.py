@@ -636,6 +636,112 @@ class PostmanAPITests(TestCase):
         self.assertIn(empty_paid.status_code, (200, 201), empty_paid.data)
         self.assertEqual(Decimal(empty_paid.data["PaidAmount"]), Decimal("600.00"))
 
+    def test_payment_lookup_by_special_number_fills_student_fields(self):
+        """إدخال الرقم المميز في شاشة المدفوعات يعيد بقية معلومات الطالب."""
+        student = self._make_student("4501")
+        lookup = self.client.get("/api/payments/lookup/?special_number=4501")
+        self.assertEqual(lookup.status_code, 200, lookup.data)
+        self.assertTrue(lookup.data["found"])
+        self.assertEqual(lookup.data["special_number"], "4501")
+        self.assertEqual(lookup.data["student_name"], "طالب تجربة")
+        self.assertEqual(lookup.data["student_class"], "10")
+        self.assertEqual(lookup.data["parent_number"], "1234567890")
+        # حتى بلا دفعات سابقة تظهر البيانات بأصفار بدل قائمة فارغة
+        self.assertEqual(lookup.data["payments_count"], 0)
+        self.assertEqual(lookup.data["Paymentresult"], "0.00")
+
+        # بعد الدفع يعكس الملخّص المبالغ الحقيقية
+        self.client.post(
+            "/api/payments/", {"special_number": "4501", "FullAmount": "700"}, format="json"
+        )
+        after = self.client.get("/api/payments/lookup/?special_number=4501")
+        self.assertEqual(after.data["PaidAmount"], "700.00")
+        self.assertEqual(after.data["total_remaining"], "0.00")
+        self.assertTrue(after.data["is_payer"])
+
+        # نفس البيانات عبر مسار الطالب
+        via_student = self.client.get(f"/api/students/{student.special_number}/payments/")
+        self.assertEqual(via_student.status_code, 200)
+        self.assertEqual(via_student.data["student_name"], "طالب تجربة")
+
+        # رقم غير موجود يعطي 404 واضحاً بدل قائمة فارغة
+        missing = self.client.get("/api/payments/lookup/?special_number=999999")
+        self.assertEqual(missing.status_code, 404)
+        self.assertFalse(missing.data["found"])
+
+    def test_payment_response_carries_student_details(self):
+        """استجابة الدفع تحمل اسم الطالب وصفه حتى تملأ الواجهة الحقول."""
+        self._make_student("4502")
+        pay = self.client.post(
+            "/api/payments/full/",
+            {"special_number": "4502", "FullAmount": "300"},
+            format="json",
+        )
+        self.assertIn(pay.status_code, (200, 201), pay.data)
+        self.assertEqual(pay.data["student_name"], "طالب تجربة")
+        self.assertEqual(pay.data["student_class"], "10")
+        self.assertEqual(pay.data["special_number"], "4502")
+        self.assertIn("student_details", pay.data)
+
+    def test_full_payment_button_with_only_special_number(self):
+        """زر دفعة كاملة بالرقم المميز وحده: يسدّد المتبقي ولا يكرر الدفع."""
+        student = self._make_student("4503")
+        self.client.post(
+            "/api/payments/",
+            {"special_number": "4503", "FullAmount": "900", "PaidAmount": "300"},
+            format="json",
+        )
+        # الضغط بالرقم المميز فقط يكمل المتبقي
+        full = self.client.post("/api/payments/full/", {"special_number": "4503"}, format="json")
+        self.assertEqual(full.status_code, 200, full.data)
+        self.assertEqual(Decimal(full.data["PaidAmount"]), Decimal("900.00"))
+        self.assertEqual(Decimal(full.data["Paymentresult"]), Decimal("0.00"))
+        student.refresh_from_db()
+        self.assertTrue(student.is_payer)
+
+        # ضغطة ثانية لا تُنشئ دفعة جديدة ولا تُرجع خطأ
+        again = self.client.post("/api/payments/full/", {"special_number": "4503"}, format="json")
+        self.assertEqual(again.status_code, 200, again.data)
+        self.assertTrue(again.data.get("already_paid"))
+        self.assertEqual(Payment.objects.filter(student=student).count(), 1)
+
+    def test_reset_payment_button(self):
+        """زر تصفير الدفع يُرجع المدفوع إلى صفر ويلغي حالة السداد."""
+        student = self._make_student("4504")
+        self.client.post(
+            "/api/payments/full/",
+            {"special_number": "4504", "FullAmount": "500"},
+            format="json",
+        )
+        student.refresh_from_db()
+        self.assertTrue(student.is_payer)
+
+        reset = self.client.post("/api/payments/reset/", {"special_number": "4504"}, format="json")
+        self.assertEqual(reset.status_code, 200, reset.data)
+        self.assertEqual(reset.data["reset_count"], 1)
+
+        student.refresh_from_db()
+        self.assertFalse(student.is_payer)
+        payment = Payment.objects.get(student=student)
+        self.assertEqual(payment.PaidAmount, Decimal("0.00"))
+        # القسط الكلي يبقى كما هو والمتبقي يعود كاملاً
+        self.assertEqual(payment.FullAmount, Decimal("500.00"))
+        self.assertEqual(payment.Paymentresult, Decimal("500.00"))
+        # حركة مالية عكسية للتدقيق
+        self.assertTrue(
+            PaymentTransaction.objects.filter(payment=payment, note="تصفير الدفع").exists()
+        )
+
+        # المسارات البديلة تعمل أيضاً
+        self.client.post("/api/payments/full/", {"special_number": "4504"}, format="json")
+        by_number = self.client.post("/api/payments/4504/reset/", {}, format="json")
+        self.assertEqual(by_number.status_code, 200, by_number.data)
+        self.client.post("/api/payments/full/", {"special_number": "4504"}, format="json")
+        by_student = self.client.post(f"/api/students/4504/reset-payment/", {}, format="json")
+        self.assertEqual(by_student.status_code, 200, by_student.data)
+        student.refresh_from_db()
+        self.assertFalse(student.is_payer)
+
     def test_payment_post_not_redirected_when_https_flag_set(self):
         """خلف Render: IS_HTTPS لا يجب أن يحوّل POST الدفع إلى 301."""
         from django.test import override_settings
