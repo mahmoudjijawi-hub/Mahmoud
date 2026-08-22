@@ -15,7 +15,7 @@ class CustomUserAdmin(DjangoUserAdmin):
         (None, {"fields": ("username", "password")}),
         ("البيانات", {"fields": ("first_name", "last_name", "special_number", "role", "user_type")}),
         ("الصلاحيات", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
-        ("الجلسة", {"fields": ("last_session_key", "token_version")}),
+        ("الجلسة", {"fields": ("last_session_key", "last_activity", "token_version")}),
     )
     add_fieldsets = (
         (

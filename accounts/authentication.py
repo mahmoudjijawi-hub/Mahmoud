@@ -1,10 +1,12 @@
-"""JWT يتحقق من token_version لإبطال جلسات المدير السابقة."""
+"""JWT يتحقق من token_version ومهلة خمول الساعة."""
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken
 
+from accounts.idle import enforce_idle_or_touch
+
 
 class VersionedJWTAuthentication(JWTAuthentication):
-    """يرفض توكن مدير إصداره أقدم من الإصدار المخزن على المستخدم."""
+    """يرفض توكن مدير إصداره أقدم، ويغلق الجلسة بعد ساعة خمول فقط."""
 
     def get_user(self, validated_token):
         # استخراج المستخدم بالطريقة الافتراضية أولاً
@@ -16,4 +18,4 @@ class VersionedJWTAuthentication(JWTAuthentication):
             if int(token_version) != int(user.token_version):
                 # توكن قديم بعد دخول جديد من جهاز آخر
                 raise InvalidToken("تم إبطال هذه الجلسة لتسجيل دخول أحدث")
-        return user
+        return enforce_idle_or_touch(user)
