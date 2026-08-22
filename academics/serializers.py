@@ -296,8 +296,26 @@ class StudentSerializer(serializers.ModelSerializer):
             if instance is None:
                 existing = Student.objects.filter(special_number=special).select_related("user").first()
             if existing is not None:
-                # تسجيل مادة إضافية لنفس الرقم: ندمج بدل رفض الرقم المكرر
-                self._merge_existing = existing
+                first = str(attrs.get("first_name") or "").strip()
+                last = str(attrs.get("last_name") or "").strip()
+                same_person = (
+                    first
+                    and last
+                    and first == (existing.first_name or "").strip()
+                    and last == (existing.last_name or "").strip()
+                )
+                if same_person:
+                    # نفس الطالب يسجّل مادة إضافية
+                    self._merge_existing = existing
+                else:
+                    raise serializers.ValidationError(
+                        {
+                            "special_number": (
+                                f"الرقم المميز {special} مستخدم لطالب نشط حالياً. "
+                                "احذف الطالب القديم أولاً أو اختر رقماً آخر."
+                            )
+                        }
+                    )
             elif not reclaim_special_number(
                 special,
                 role="student",
