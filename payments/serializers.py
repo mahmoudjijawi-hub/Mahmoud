@@ -54,15 +54,17 @@ def _resolve_student(value):
         return value
     if isinstance(value, dict):
         if value.get("id"):
-            return Student.objects.filter(pk=value["id"], is_active=True).first()
+            return Student.objects.filter(pk=value["id"]).first()
         special = (
             value.get("special_number")
             or value.get("specialNumber")
             or value.get("number")
         )
         if special is not None and str(special).strip() != "":
+            from core.digits import normalize_digits
+
             return Student.objects.filter(
-                special_number=str(special).strip(), is_active=True
+                special_number=normalize_digits(str(special).strip())
             ).first()
         return None
 
@@ -73,9 +75,9 @@ def _resolve_student(value):
 
     text = normalize_digits(text)
     if _is_uuid(text):
-        return Student.objects.filter(pk=text, is_active=True).first()
+        return Student.objects.filter(pk=text).first()
     # الفرونت غالباً يضع الرقم المميز في حقل student
-    return Student.objects.filter(special_number=text, is_active=True).first()
+    return Student.objects.filter(special_number=text).first()
 
 
 class FlexibleStudentField(serializers.Field):
