@@ -135,6 +135,7 @@ import importlib.util  # noqa: E402
 from urllib.parse import quote as _url_quote  # noqa: E402
 
 import dj_database_url  # noqa: E402
+from django.core.exceptions import ImproperlyConfigured  # noqa: E402
 
 _NEON_DATABASE_URL = (
     "postgresql://neondb_owner:npg_4nOL7skoMpib@"
@@ -172,8 +173,15 @@ if not DATABASE_URL:
 
 _is_postgres = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 if _is_postgres and not _postgres_driver_installed():
-    # Termux قبل تثبيت psycopg: نكمل بـ SQLite بدل تعطّل المشروع كلياً.
-    # للتحويل إلى PostgreSQL: pkg install postgresql && pip install "psycopg[binary]"
+    # قاعدة المشروع PostgreSQL دائماً. لا نتحول إلى SQLite تلقائياً حتى لا
+    # يعمل التطبيق صامتاً على قاعدة فارغة محلية بدل بيانات المعهد الحقيقية.
+    if not env.bool("ALLOW_SQLITE_FALLBACK", default=False):
+        raise ImproperlyConfigured(
+            "مشغّل PostgreSQL غير مثبّت. ثبّته أولاً:\n"
+            '  Termux : pkg install postgresql && pip install "psycopg>=3.1"\n'
+            '  غير ذلك: pip install "psycopg[binary]>=3.1"\n'
+            "للتجربة على SQLite مؤقتاً فقط: ALLOW_SQLITE_FALLBACK=True"
+        )
     DATABASE_URL = f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
     _is_postgres = False
 
