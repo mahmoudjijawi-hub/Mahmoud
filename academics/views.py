@@ -191,6 +191,25 @@ class StudentViewSet(viewsets.ModelViewSet):
         """مرادف: POST /api/students/{id}/full-payment/"""
         return self.pay(request, pk=pk)
 
+    @action(detail=True, methods=["get"], url_path="payments")
+    def payments(self, request, pk=None):
+        """
+        بيانات الطالب ومدفوعاته:
+        GET /api/students/{id|رقم مميز}/payments/
+        """
+        from payments.services import student_payment_summary
+
+        student = self.get_object()
+        return Response(student_payment_summary(student), status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post", "put", "patch"], url_path="reset-payment")
+    def reset_payment(self, request, pk=None):
+        """زر تصفير الدفع من بطاقة الطالب."""
+        from payments.services import reset_student_payments
+
+        student = self.get_object()
+        return Response(reset_student_payments(student), status=status.HTTP_200_OK)
+
     def perform_destroy(self, instance):
         """
         حذف نهائي من قاعدة البيانات: الطالب + حساب المستخدم + السجلات التابعة.
