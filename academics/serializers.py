@@ -178,6 +178,7 @@ class StudentSerializer(serializers.ModelSerializer):
     class1 = serializers.CharField(max_length=30, required=False, allow_blank=True)
     class2 = serializers.CharField(max_length=30, required=False, allow_blank=True)
     class3 = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    subjects = serializers.SerializerMethodField()
     confirm_special_number = FlexibleCharField(max_length=10, required=False, write_only=True)
 
     class Meta:
@@ -196,16 +197,22 @@ class StudentSerializer(serializers.ModelSerializer):
             "class1",
             "class2",
             "class3",
+            "subjects",
             "confirm_special_number",
         )
-        read_only_fields = ("id",)
+        read_only_fields = ("id", "subjects")
+
+    def get_subjects(self, instance):
+        from academics.subjects import student_subject_names
+
+        return student_subject_names(instance)
 
     def to_internal_value(self, data):
-        # تطبيع أسماء camelCase الشائعة من الفرونت قبل التحقق
-        if hasattr(data, "items"):
-            data = {k: v for k, v in data.items()}
-        else:
-            data = dict(data or {})
+        from academics.subjects import flatten_class_fields
+
+        # المصفوفات (اختيار مواد متعدد) تُسطَّح قبل CharField
+        data, names = flatten_class_fields(data)
+        self._incoming_subject_names = names
 
         if "is_payer" not in data or data.get("is_payer") in (None, ""):
             for key in ("isPayer", "IsPayer", "payer", "paid", "is_paid", "isPaid"):
@@ -218,10 +225,13 @@ class StudentSerializer(serializers.ModelSerializer):
                     data["special_number"] = data[key]
                     break
         if "student_class" not in data or data.get("student_class") in (None, ""):
-            for key in ("studentClass", "class", "class_name"):
-                if key in data and data.get(key) not in (None, ""):
+            for key in ("studentClass", "class_name"):
+                if key in data and data.get(key) not in (None, "") and not isinstance(data.get(key), (list, tuple, set)):
                     data["student_class"] = data[key]
                     break
+            class_value = data.get("class")
+            if class_value not in (None, "") and not isinstance(class_value, (list, tuple, set)):
+                data["student_class"] = class_value
         if "parent_number" not in data or data.get("parent_number") in (None, ""):
             for key in ("parentNumber", "parent_phone"):
                 if key in data and data.get(key) not in (None, ""):
@@ -282,8 +292,31 @@ class StudentSerializer(serializers.ModelSerializer):
             from academics.reclaim import reclaim_special_number
 
             instance = getattr(self, "instance", None)
-            # يحرّر بقايا soft-delete؛ إن وُجد حساب نشط نرفض برسالة واضحة
-            if not reclaim_special_number(
+            existing = None
+            if instance is None:
+                existing = Student.objects.filter(special_number=special).select_related("user").first()
+            if existing is not None:
+                first = str(attrs.get("first_name") or "").strip()
+                last = str(attrs.get("last_name") or "").strip()
+                same_person = (
+                    first
+                    and last
+                    and first == (existing.first_name or "").strip()
+                    and last == (existing.last_name or "").strip()
+                )
+                if same_person:
+                    # نفس الطالب يسجّل مادة إضافية
+                    self._merge_existing = existing
+                else:
+                    raise serializers.ValidationError(
+                        {
+                            "special_number": (
+                                f"الرقم المميز {special} مستخدم لطالب نشط حالياً. "
+                                "احذف الطالب القديم أولاً أو اختر رقماً آخر."
+                            )
+                        }
+                    )
+            elif not reclaim_special_number(
                 special,
                 role="student",
                 exclude_student_id=getattr(instance, "pk", None),
@@ -374,6 +407,38 @@ class StudentSerializer(serializers.ModelSerializer):
                 note="إكمال دفعة من تعليم is_payer",
             )
 
+    def _incoming_names(self, raw):
+        from academics.subjects import collect_subject_names
+
+        names = getattr(self, "_incoming_subject_names", None)
+        if names:
+            return names
+        return collect_subject_names(raw)
+
+    def _raw_has_subject_list(self, raw):
+        if not isinstance(raw, dict) and not hasattr(raw, "get"):
+            return False
+        for key in ("subjects", "subject_names", "subjectNames", "classes", "class_list", "classList"):
+            if isinstance(raw.get(key), (list, tuple, set)):
+                return True
+        if isinstance(raw.get("class1"), (list, tuple, set)):
+            return True
+        if isinstance(raw.get("class"), (list, tuple, set)):
+            return True
+        return False
+
+    def _sync_subjects(self, student, raw, merging=False):
+        from academics.subjects import apply_subjects
+
+        names = self._incoming_names(raw)
+        if not names:
+            return
+        if merging:
+            apply_subjects(student, names, merge=True)
+            return
+        merge = getattr(self, "partial", False) and not self._raw_has_subject_list(raw)
+        apply_subjects(student, names, merge=merge)
+
     @transaction.atomic
     def create(self, validated_data):
         from django.db import IntegrityError
@@ -381,6 +446,11 @@ class StudentSerializer(serializers.ModelSerializer):
 
         special = validated_data["special_number"]
         raw = getattr(self, "initial_data", {}) or {}
+        existing = getattr(self, "_merge_existing", None)
+        if existing is not None:
+            for key in ("class1", "class2", "class3"):
+                validated_data.pop(key, None)
+            return self.update(existing, validated_data)
         reclaim_special_number(special, role="student")
         try:
             user = CustomUser.objects.create_user(
@@ -405,11 +475,16 @@ class StudentSerializer(serializers.ModelSerializer):
             ) from exc
         if student.is_payer:
             self._sync_payments_when_payer(student, raw)
+        self._sync_subjects(student, raw, merging=False)
         return student
 
     @transaction.atomic
     def update(self, instance, validated_data):
         raw = getattr(self, "initial_data", {}) or {}
+        merging = getattr(self, "_merge_existing", None) is not None and getattr(self, "instance", None) is None
+        if merging:
+            for key in ("class1", "class2", "class3"):
+                validated_data.pop(key, None)
         was_payer = instance.is_payer
         became_payer = (
             "is_payer" in validated_data
@@ -441,10 +516,13 @@ class StudentSerializer(serializers.ModelSerializer):
             from payments.services import reset_student_payments
 
             reset_student_payments(instance)
+        self._sync_subjects(instance, raw, merging=merging)
         return instance
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["isPayer"] = data.get("is_payer")
         data["specialNumber"] = data.get("special_number")
+        subjects = data.get("subjects") or []
+        data["classes"] = subjects
         return data

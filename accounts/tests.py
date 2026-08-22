@@ -355,6 +355,77 @@ class PostmanAPITests(TestCase):
         # الحذف نهائي: حساب المستخدم يُحذف أيضاً ولا يبقى شطب ناعم
         self.assertFalse(User.objects.filter(special_number="112").exists())
 
+    def test_student_can_register_multiple_subjects(self):
+        """الواجهة قد ترسل المواد كمصفوفة أو تسجّل نفس الطالب مرة ثانية لمادة جديدة."""
+        from academics.models import Subject
+
+        create = self.client.post(
+            "/api/students/",
+            {
+                "first_name": "سامي",
+                "last_name": "حسن",
+                "special_number": "6601",
+                "student_class": "10",
+                "parent_number": "0933111222",
+                "student_number": "5544",
+                "address": "اللاذقية",
+                "personal_notes": "أكثر من مادة",
+                "is_payer": False,
+                "class1": ["رياضيات", "فيزياء", "كيمياء", "عربي"],
+            },
+            format="json",
+        )
+        self.assertEqual(create.status_code, 201, create.data)
+        self.assertIn("رياضيات", create.data["subjects"])
+        self.assertIn("فيزياء", create.data["subjects"])
+        self.assertIn("كيمياء", create.data["subjects"])
+        self.assertIn("عربي", create.data["subjects"])
+        self.assertEqual(create.data["class1"], "رياضيات")
+        self.assertEqual(create.data["class2"], "فيزياء")
+        self.assertEqual(create.data["class3"], "كيمياء")
+        student_id = create.data["id"]
+        self.assertEqual(Subject.objects.filter(students__id=student_id).count(), 4)
+
+        again = self.client.post(
+            "/api/students/",
+            {
+                "first_name": "سامي",
+                "last_name": "حسن",
+                "special_number": "6601",
+                "student_class": "10",
+                "parent_number": "0933111222",
+                "student_number": "5544",
+                "address": "اللاذقية",
+                "personal_notes": "مادة خامسة",
+                "is_payer": False,
+                "class1": "تاريخ",
+            },
+            format="json",
+        )
+        self.assertIn(again.status_code, (200, 201), again.data)
+        self.assertEqual(again.data["id"], student_id)
+        self.assertIn("تاريخ", again.data["subjects"])
+        self.assertIn("رياضيات", again.data["subjects"])
+        self.assertEqual(Student.objects.filter(special_number="6601").count(), 1)
+
+        listed = self.client.post(
+            "/api/students/",
+            {
+                "first_name": "ليلى",
+                "last_name": "خالد",
+                "special_number": "6602",
+                "student_class": "11",
+                "parent_number": "0933111333",
+                "student_number": "5566",
+                "address": "دمشق",
+                "is_payer": False,
+                "subjects": ["وطنية", "فلسفة", "انكليزي"],
+            },
+            format="json",
+        )
+        self.assertEqual(listed.status_code, 201, listed.data)
+        self.assertEqual(set(listed.data["subjects"]), {"وطنية", "فلسفة", "انكليزي"})
+
     def test_delete_student_is_permanent_everywhere(self):
         """الحذف يزيل الطالب وحسابه ودفعاته من قاعدة البيانات نهائياً."""
         student = self._make_student("9099")

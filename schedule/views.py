@@ -39,8 +39,10 @@ class ProgramViewSet(viewsets.ModelViewSet):
             student = getattr(user, "student_profile", None)
             if student is None:
                 return qs.none()
-            subjects = [student.class1, student.class2, student.class3]
-            qs = qs.filter(subject_name__in=[s for s in subjects if s])
+            from academics.subjects import student_subject_names
+
+            subjects = student_subject_names(student)
+            qs = qs.filter(subject_name__in=subjects)
         for key in ("certificate_type", "grade", "section", "day", "time_slot", "room", "subject_name"):
             value = params.get(key)
             if value:
