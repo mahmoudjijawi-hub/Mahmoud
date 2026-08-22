@@ -65,8 +65,11 @@ def collect_subject_names(data):
     if isinstance(class_value, (list, tuple, set)):
         names.extend(_split_names(class_value))
 
+    # class1/2/3 النصية في الواجهة = مرحلة/صف/شعبة وليست مواد
     for key in ("class1", "class2", "class3"):
-        names.extend(_split_names(raw.get(key)))
+        value = raw.get(key)
+        if isinstance(value, (list, tuple, set)):
+            names.extend(_split_names(value))
 
     seen = set()
     unique = []
@@ -99,21 +102,9 @@ def flatten_class_fields(data):
     if isinstance(raw.get("class"), (list, tuple, set)):
         raw.pop("class", None)
 
-    for index, key in enumerate(("class1", "class2", "class3")):
-        value = raw.get(key)
-        if isinstance(value, (list, tuple, set)):
-            raw[key] = names[index] if index < len(names) else ""
-        elif value in (None, "") and index < len(names):
-            raw[key] = names[index]
-        elif isinstance(value, str) and ("," in value or "،" in value):
-            raw[key] = names[index] if index < len(names) else value.split(",")[0].strip()[:30]
-
-    if names:
-        raw["class1"] = (raw.get("class1") or names[0])[:30]
-        if len(names) > 1:
-            raw["class2"] = (raw.get("class2") or names[1])[:30]
-        if len(names) > 2:
-            raw["class3"] = (raw.get("class3") or names[2])[:30]
+    for key in ("class1", "class2", "class3"):
+        if isinstance(raw.get(key), (list, tuple, set)):
+            raw[key] = ""
 
     return raw, names
 
@@ -141,15 +132,12 @@ def resolve_subjects(names):
 
 
 def student_subject_names(student):
-    """أسماء مواد الطالب من العلاقة أولاً ثم class1/2/3."""
-    names = list(student.subjects.values_list("name", flat=True))
-    if names:
-        return names
-    return [name for name in (student.class1, student.class2, student.class3) if name]
+    """أسماء مواد الطالب من العلاقة المتعددة فقط (class1/2/3 للمسار)."""
+    return list(student.subjects.values_list("name", flat=True))
 
 
 def apply_subjects(student, names, merge=True):
-    """ربط المواد بالطالب وملء class1/2/3 للتوافق مع الواجهة القديمة."""
+    """ربط المواد بالطالب دون الكتابة فوق مسار المرحلة/الصف/الشعبة."""
     incoming = resolve_subjects(names)
     incoming_names = [subject.name for subject in incoming]
     if merge:
@@ -161,8 +149,4 @@ def apply_subjects(student, names, merge=True):
         combined = incoming_names
 
     student.subjects.set(resolve_subjects(combined))
-    student.class1 = combined[0] if len(combined) > 0 else ""
-    student.class2 = combined[1] if len(combined) > 1 else ""
-    student.class3 = combined[2] if len(combined) > 2 else ""
-    student.save(update_fields=["class1", "class2", "class3"])
     return combined

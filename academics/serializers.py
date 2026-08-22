@@ -525,4 +525,9 @@ class StudentSerializer(serializers.ModelSerializer):
         data["specialNumber"] = data.get("special_number")
         subjects = data.get("subjects") or []
         data["classes"] = subjects
+        # شاشة العلامات تفحص: class1.includes(المرحلة) && class1.includes(الصف)
+        level = (instance.class1 or "").strip()
+        grade = (instance.class2 or "").strip()
+        if grade and grade not in level:
+            data["class1"] = f"{level} {grade}".strip()
         return data
