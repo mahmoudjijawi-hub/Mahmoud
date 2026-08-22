@@ -47,6 +47,9 @@ class TeacherSerializer(serializers.ModelSerializer):
         read_only_fields = ("id",)
 
     def validate_special_number(self, value):
+        from core.digits import normalize_digits
+
+        value = normalize_digits(value)
         if not str(value).isdigit():
             raise serializers.ValidationError("الرقم المميز يجب أن يكون رقمياً.")
         if len(str(value)) > 10:
@@ -54,6 +57,9 @@ class TeacherSerializer(serializers.ModelSerializer):
         return str(value)
 
     def validate_teacher_number(self, value):
+        from core.digits import normalize_digits
+
+        value = normalize_digits(value)
         if not str(value).isdigit():
             raise serializers.ValidationError("رقم هاتف الأستاذ يجب أن يكون رقمياً وبحد أقصى 10 خانات.")
         return str(value)
@@ -67,6 +73,19 @@ class TeacherSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if request is not None and request.FILES.get("cv"):
             validate_cv_file(request.FILES["cv"])
+        if special is not None:
+            from academics.reclaim import reclaim_special_number
+
+            instance = getattr(self, "instance", None)
+            if not reclaim_special_number(
+                special,
+                role="teacher",
+                exclude_teacher_id=getattr(instance, "pk", None),
+                exclude_user_id=getattr(getattr(instance, "user", None), "pk", None),
+            ):
+                raise serializers.ValidationError(
+                    {"special_number": f"الرقم المميز {special} مستخدم مسبقاً لحساب نشط."}
+                )
         return attrs
 
     def to_representation(self, instance):
@@ -82,34 +101,43 @@ class TeacherSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
+        from django.db import IntegrityError
+        from academics.reclaim import allocate_username, reclaim_special_number
+
         validated_data.pop("user", None)
         special = validated_data["special_number"]
+        reclaim_special_number(special, role="teacher")
         gender = self._gender_value(validated_data.get("gender", ""))
         request = self.context.get("request")
         cv_file = request.FILES.get("cv") if request is not None else None
         cv_text = validated_data.get("cv", "")
         if cv_file and not cv_text:
             cv_text = cv_file.name[:175]
-        user = CustomUser.objects.create_user(
-            username=f"t{special}"[:25],
-            password=None,
-            first_name=validated_data["first_name"],
-            last_name=validated_data["last_name"],
-            special_number=special,
-            role=CustomUser.ROLE_TEACHER,
-            user_type="2",
-        )
-        teacher = Teacher.objects.create(
-            user=user,
-            first_name=validated_data["first_name"],
-            last_name=validated_data["last_name"],
-            special_number=special,
-            gender=gender,
-            teacher_number=validated_data["teacher_number"],
-            expertise=validated_data["expertise"],
-            cv=cv_text or "",
-            cv_file=cv_file,
-        )
+        try:
+            user = CustomUser.objects.create_user(
+                username=allocate_username("t", special),
+                password=None,
+                first_name=validated_data["first_name"],
+                last_name=validated_data["last_name"],
+                special_number=special,
+                role=CustomUser.ROLE_TEACHER,
+                user_type="2",
+            )
+            teacher = Teacher.objects.create(
+                user=user,
+                first_name=validated_data["first_name"],
+                last_name=validated_data["last_name"],
+                special_number=special,
+                gender=gender,
+                teacher_number=validated_data["teacher_number"],
+                expertise=validated_data["expertise"],
+                cv=cv_text or "",
+                cv_file=cv_file,
+            )
+        except IntegrityError as exc:
+            raise serializers.ValidationError(
+                {"special_number": f"تعذر إنشاء الأستاذ بالرقم {special} — الرقم مستخدم."}
+            ) from exc
         return teacher
 
     @transaction.atomic
@@ -144,8 +172,8 @@ class StudentSerializer(serializers.ModelSerializer):
     student_class = FlexibleCharField(max_length=20)
     parent_number = FlexibleCharField(max_length=10)
     student_number = FlexibleCharField(max_length=10)
-    address = serializers.CharField(max_length=30)
-    personal_notes = serializers.CharField(max_length=25, required=False, allow_blank=True)
+    address = serializers.CharField(max_length=100)
+    personal_notes = serializers.CharField(max_length=100, required=False, allow_blank=True)
     is_payer = FlexibleBooleanField(required=False)
     class1 = serializers.CharField(max_length=30, required=False, allow_blank=True)
     class2 = serializers.CharField(max_length=30, required=False, allow_blank=True)
@@ -222,6 +250,9 @@ class StudentSerializer(serializers.ModelSerializer):
         return super().to_internal_value(data)
 
     def validate_special_number(self, value):
+        from core.digits import normalize_digits
+
+        value = normalize_digits(value)
         if not str(value).isdigit():
             raise serializers.ValidationError("الرقم المميز يجب أن يكون رقمياً.")
         if len(str(value)) > 10:
@@ -229,6 +260,9 @@ class StudentSerializer(serializers.ModelSerializer):
         return str(value)
 
     def _phone(self, value, field_ar):
+        from core.digits import normalize_digits
+
+        value = normalize_digits(value)
         if not str(value).isdigit():
             raise serializers.ValidationError(f"{field_ar} يجب أن يكون رقمياً وبحد أقصى 10 خانات.")
         return str(value)
@@ -244,6 +278,25 @@ class StudentSerializer(serializers.ModelSerializer):
         special = attrs.get("special_number")
         if confirm is not None and special is not None and str(confirm) != str(special):
             raise serializers.ValidationError({"special_number": "تأكيد الرقم المميز غير مطابق."})
+        if special is not None:
+            from academics.reclaim import reclaim_special_number
+
+            instance = getattr(self, "instance", None)
+            # يحرّر بقايا soft-delete؛ إن وُجد حساب نشط نرفض برسالة واضحة
+            if not reclaim_special_number(
+                special,
+                role="student",
+                exclude_student_id=getattr(instance, "pk", None),
+                exclude_user_id=getattr(getattr(instance, "user", None), "pk", None),
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "special_number": (
+                            f"الرقم المميز {special} مستخدم لطالب نشط حالياً. "
+                            "احذف الطالب القديم أولاً أو اختر رقماً آخر."
+                        )
+                    }
+                )
         return attrs
 
     def _extract_amount(self, raw):
@@ -323,18 +376,33 @@ class StudentSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
+        from django.db import IntegrityError
+        from academics.reclaim import allocate_username, reclaim_special_number
+
         special = validated_data["special_number"]
         raw = getattr(self, "initial_data", {}) or {}
-        user = CustomUser.objects.create_user(
-            username=f"s{special}"[:25],
-            password=None,
-            first_name=validated_data["first_name"],
-            last_name=validated_data["last_name"],
-            special_number=special,
-            role=CustomUser.ROLE_STUDENT,
-            user_type="3",
-        )
-        student = Student.objects.create(user=user, **validated_data)
+        reclaim_special_number(special, role="student")
+        try:
+            user = CustomUser.objects.create_user(
+                username=allocate_username("s", special),
+                password=None,
+                first_name=validated_data["first_name"],
+                last_name=validated_data["last_name"],
+                special_number=special,
+                role=CustomUser.ROLE_STUDENT,
+                user_type="3",
+            )
+            student = Student.objects.create(user=user, **validated_data)
+        except IntegrityError as exc:
+            raise serializers.ValidationError(
+                {
+                    "special_number": (
+                        f"تعذر إضافة الطالب بالرقم {special}. "
+                        "الرقم أو اسم المستخدم محجوز — احذف الطالب القديم أو غيّر الرقم."
+                    ),
+                    "detail": "تعذر إضافة الطالب بسبب تعارض في قاعدة البيانات.",
+                }
+            ) from exc
         if student.is_payer:
             self._sync_payments_when_payer(student, raw)
         return student
