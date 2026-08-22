@@ -69,6 +69,9 @@ def _resolve_student(value):
     text = str(value).strip()
     if not text:
         return None
+    from core.digits import normalize_digits
+
+    text = normalize_digits(text)
     if _is_uuid(text):
         return Student.objects.filter(pk=text, is_active=True).first()
     # الفرونت غالباً يضع الرقم المميز في حقل student

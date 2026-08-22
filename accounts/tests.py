@@ -745,6 +745,67 @@ class PostmanAPITests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_create_student_reclaims_inactive_numbers_and_arabic_digits(self):
+        """
+        أرقام مثل 1 و333 المحجوزة لطلاب محذوفين ناعماً يجب أن تُحرَّر.
+        الأرقام العربية ٣٣٣ تُقبل وتُحفظ لاتينياً.
+        """
+        # محاكاة بقايا soft-delete كما في Neon
+        for num in ("1", "333"):
+            stale_user = User.objects.create_user(
+                username=f"s{num}",
+                special_number=num,
+                role=User.ROLE_STUDENT,
+                user_type="3",
+                first_name="قديم",
+                last_name="محذوف",
+            )
+            stale_user.is_active = False
+            stale_user.save(update_fields=["is_active"])
+            Student.objects.create(
+                user=stale_user,
+                first_name="قديم",
+                last_name="محذوف",
+                special_number=num,
+                student_class="1",
+                parent_number="1234567890",
+                student_number="1234567890",
+                address="قديم",
+                personal_notes="",
+                is_payer=False,
+                is_active=False,
+            )
+
+        payload = {
+            "first_name": "جديد",
+            "last_name": "طالب",
+            "special_number": "1",
+            "student_class": "1",
+            "parent_number": "0933111222",
+            "student_number": "5544",
+            "address": "اللاذقية - المشروع الأول",
+            "personal_notes": "ملاحظة",
+            "is_payer": False,
+            "class1": "رياضيات",
+            "class2": "فيزياء",
+            "class3": "كيمياء",
+        }
+        create_one = self.client.post("/api/students/", payload, format="json")
+        self.assertEqual(create_one.status_code, 201, create_one.data)
+        self.assertEqual(str(create_one.data["special_number"]), "1")
+
+        payload["special_number"] = "٣٣٣"
+        create_arabic = self.client.post("/api/students/", payload, format="json")
+        self.assertEqual(create_arabic.status_code, 201, create_arabic.data)
+        self.assertEqual(str(create_arabic.data["special_number"]), "333")
+
+        # رقم نشط مستخدم → 400 واضح لا 500
+        self._make_student("2")
+        payload["special_number"] = "2"
+        conflict = self.client.post("/api/students/", payload, format="json")
+        self.assertEqual(conflict.status_code, 400, conflict.data)
+        self.assertIn("special_number", conflict.data)
+
     def _make_student(self, special):
         user = User.objects.create_user(
             username=f"s{special}"[:25],
