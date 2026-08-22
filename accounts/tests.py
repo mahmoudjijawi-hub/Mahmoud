@@ -380,9 +380,6 @@ class PostmanAPITests(TestCase):
         self.assertIn("فيزياء", create.data["subjects"])
         self.assertIn("كيمياء", create.data["subjects"])
         self.assertIn("عربي", create.data["subjects"])
-        self.assertEqual(create.data["class1"], "رياضيات")
-        self.assertEqual(create.data["class2"], "فيزياء")
-        self.assertEqual(create.data["class3"], "كيمياء")
         student_id = create.data["id"]
         self.assertEqual(Subject.objects.filter(students__id=student_id).count(), 4)
 
@@ -398,7 +395,7 @@ class PostmanAPITests(TestCase):
                 "address": "اللاذقية",
                 "personal_notes": "مادة خامسة",
                 "is_payer": False,
-                "class1": "تاريخ",
+                "subjects": ["تاريخ"],
             },
             format="json",
         )
@@ -425,6 +422,34 @@ class PostmanAPITests(TestCase):
         )
         self.assertEqual(listed.status_code, 201, listed.data)
         self.assertEqual(set(listed.data["subjects"]), {"وطنية", "فلسفة", "انكليزي"})
+
+        path_student = self.client.post(
+            "/api/students/",
+            {
+                "first_name": "هناء",
+                "last_name": "علي",
+                "special_number": "6603",
+                "student_class": "بكالوريا",
+                "parent_number": "0933111444",
+                "student_number": "5577",
+                "address": "حمص",
+                "is_payer": False,
+                "class1": "بكالوريا",
+                "class2": "علمي",
+                "class3": "الشعبة الأولى",
+                "subjects": ["رياضيات"],
+            },
+            format="json",
+        )
+        self.assertEqual(path_student.status_code, 201, path_student.data)
+        self.assertIn("بكالوريا", path_student.data["class1"])
+        self.assertIn("علمي", path_student.data["class1"])
+        self.assertEqual(path_student.data["class3"], "الشعبة الأولى")
+        listing = self.client.get("/api/students/")
+        self.assertIsInstance(listing.data, list)
+        row = next(item for item in listing.data if item["id"] == path_student.data["id"])
+        self.assertIn("بكالوريا", row["class1"])
+        self.assertIn("علمي", row["class1"])
 
     def test_delete_student_is_permanent_everywhere(self):
         """الحذف يزيل الطالب وحسابه ودفعاته من قاعدة البيانات نهائياً."""
@@ -579,6 +604,28 @@ class PostmanAPITests(TestCase):
             format="json",
         )
         self.assertEqual(create.status_code, 201)
+
+        frontend = self.client.post(
+            "/api/exams/",
+            {
+                "student": str(student.id),
+                "nameofexam": "مذاكرة 1",
+                "subject_name": "رياضيات",
+                "date": "2026-08-22",
+                "mark": "17.5",
+                "full_mark": "20",
+                "class1": "بكالوريا",
+                "class2": "علمي",
+                "class3": "الشعبة الأولى",
+                "itsnote": "جيد",
+            },
+            format="json",
+        )
+        self.assertEqual(frontend.status_code, 201, frontend.data)
+        self.assertEqual(frontend.data["Nameofexam"], "مذاكرة 1")
+        self.assertEqual(frontend.data["Mark"], 18)
+        self.assertEqual(frontend.data["special_number"], student.special_number)
+
         exam_id = create.data["id"]
         patch = self.client.patch(
             f"/api/exams/{exam_id}/",
