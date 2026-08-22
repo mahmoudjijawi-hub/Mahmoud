@@ -336,6 +336,14 @@ class PostmanAPITests(TestCase):
         recreate = self._make_student("9099")
         self.assertIsNotNone(recreate.pk)
 
+    def test_database_engine_stays_postgresql(self):
+        """قاعدة المشروع PostgreSQL — أي تحول صامت إلى SQLite يجب أن يفشل الاختبار."""
+        from django.conf import settings
+
+        engine = settings.DATABASES["default"]["ENGINE"]
+        self.assertEqual(engine, "django.db.backends.postgresql", engine)
+        self.assertNotIn("sqlite", engine)
+
     def test_cors_preflight_allows_authorization_header(self):
         """
         preflight يجب أن يذكر Authorization صراحة؛ البدل "*" مرفوض من المتصفح

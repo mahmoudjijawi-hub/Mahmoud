@@ -46,7 +46,20 @@ python manage.py createsuperuser
 
 بعد `migrate` شغّل `seed_manager` حتى تُضبط كلمة مرور المدير الأولي (الهجرة تنشئ الحساب، والأمر يضبط كلمة المرور من `.env`).
 
-على الإنتاج (Linux) ثبّت أيضاً `argon2-cffi` و`psycopg2-binary` و`gunicorn` من `requirements.txt`. إن تعذّر بناء `argon2-cffi` على ويندوز محلياً فالمنصة تعمل بـ PBKDF2 تلقائياً.
+مشغّل PostgreSQL هو `psycopg` (الإصدار 3). على x86_64 و macOS يُثبَّت `psycopg[binary]` كويل جاهز بلا بناء C، وعلى ARM/Termux تُثبَّت النسخة النقية `psycopg` التي تعتمد على `libpq` من النظام — يتم الاختيار تلقائياً حسب المعمارية داخل `requirements.txt`. إن تعذّر بناء `argon2-cffi` فالمنصة تعمل بـ PBKDF2 تلقائياً.
+
+### التشغيل على Termux (أندرويد)
+
+```bash
+pkg install python postgresql libffi clang
+pip install -r requirements.txt
+```
+
+`libpq` تأتي مع حزمة `postgresql`، وهي كل ما تحتاجه نسخة `psycopg` النقية — لا يوجد بناء لـ `psycopg2` إطلاقاً.
+
+لقاعدة بيانات محلية على الهاتف بدل Neon، اترك `DATABASE_URL` فارغاً واملأ `DB_NAME` و`DB_USER` وبقية متغيرات `DB_*` في `.env`.
+
+قاعدة المشروع **PostgreSQL دائماً**. إن لم يكن المشغّل مثبّتاً يتوقف التطبيق برسالة واضحة تشرح أمر التثبيت، ولا يتحول إلى SQLite صامتاً حتى لا تعمل المنصة على قاعدة فارغة بدل بيانات المعهد. للتجربة المؤقتة على SQLite فقط اضبط `ALLOW_SQLITE_FALLBACK=True`.
 
 5. شغّل خادم التطوير:
 

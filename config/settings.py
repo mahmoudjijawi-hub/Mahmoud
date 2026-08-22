@@ -127,21 +127,74 @@ TEMPLATES = [
 # مدخل WSGI
 WSGI_APPLICATION = "config.wsgi.application"
 
-# قاعدة بيانات PostgreSQL السحابية (Neon) عبر dj-database-url من ملف .env
-import dj_database_url
+# ───────────────────────── قاعدة البيانات ─────────────────────────
+# الأولوية: DATABASE_URL ← متغيرات DB_* المنفصلة ← Neon الافتراضية.
+# لا يُفرض مشغّل C معيّن: ENGINE القياسي يستخدم psycopg (3) إن وُجد
+# وإلا psycopg2، ما يجعل Termux يعمل بـ psycopg النقي + libpq فقط.
+import importlib.util  # noqa: E402
+from urllib.parse import quote as _url_quote  # noqa: E402
 
-DATABASES = {
-    "default": dj_database_url.parse(
-        env(
-            "DATABASE_URL",
-            default=(
-                "postgresql://neondb_owner:npg_4nOL7skoMpib@"
-                "ep-late-block-ax2kg9c0.c-4.us-east-2.aws.neon.tech/"
-                "neondb?sslmode=require"
-            ),
-        )
+import dj_database_url  # noqa: E402
+from django.core.exceptions import ImproperlyConfigured  # noqa: E402
+
+_NEON_DATABASE_URL = (
+    "postgresql://neondb_owner:npg_4nOL7skoMpib@"
+    "ep-late-block-ax2kg9c0.c-4.us-east-2.aws.neon.tech/"
+    "neondb?sslmode=require"
+)
+
+
+def _build_url_from_db_env():
+    """بناء رابط اتصال من متغيرات DB_* المنفصلة إن استُخدمت بدل DATABASE_URL."""
+    name = env("DB_NAME", default="").strip()
+    if not name:
+        return ""
+    user = _url_quote(env("DB_USER", default="postgres"), safe="")
+    password = _url_quote(env("DB_PASSWORD", default=""), safe="")
+    host = env("DB_HOST", default="127.0.0.1")
+    port = env("DB_PORT", default="5432")
+    sslmode = env("DB_SSLMODE", default="").strip()
+    credentials = f"{user}:{password}" if password else user
+    url = f"postgresql://{credentials}@{host}:{port}/{name}"
+    return f"{url}?sslmode={sslmode}" if sslmode else url
+
+
+def _postgres_driver_installed():
+    """هل يوجد مشغّل PostgreSQL مثبّت فعلاً (psycopg 3 أو psycopg2)؟"""
+    return any(
+        importlib.util.find_spec(module) is not None
+        for module in ("psycopg", "psycopg2")
     )
+
+
+DATABASE_URL = env("DATABASE_URL", default="").strip() or _build_url_from_db_env()
+if not DATABASE_URL:
+    DATABASE_URL = env("DEFAULT_DATABASE_URL", default=_NEON_DATABASE_URL)
+
+_is_postgres = DATABASE_URL.startswith(("postgres://", "postgresql://"))
+if _is_postgres and not _postgres_driver_installed():
+    # قاعدة المشروع PostgreSQL دائماً. لا نتحول إلى SQLite تلقائياً حتى لا
+    # يعمل التطبيق صامتاً على قاعدة فارغة محلية بدل بيانات المعهد الحقيقية.
+    if not env.bool("ALLOW_SQLITE_FALLBACK", default=False):
+        raise ImproperlyConfigured(
+            "مشغّل PostgreSQL غير مثبّت. ثبّته أولاً:\n"
+            '  Termux : pkg install postgresql && pip install "psycopg>=3.1"\n'
+            '  غير ذلك: pip install "psycopg[binary]>=3.1"\n'
+            "للتجربة على SQLite مؤقتاً فقط: ALLOW_SQLITE_FALLBACK=True"
+        )
+    DATABASE_URL = f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+    _is_postgres = False
+
+_db_options = {
+    # اتصالات مُعمَّرة تقلل زمن فتح الاتصال مع Neon
+    "conn_max_age": env.int("DB_CONN_MAX_AGE", default=600),
+    "conn_health_checks": True,
 }
+if _is_postgres:
+    # لا نفرض SSL على SQLite، ونحترم sslmode الموجود في الرابط أصلاً
+    _db_options["ssl_require"] = env.bool("DB_SSL_REQUIRE", default=False)
+
+DATABASES = {"default": dj_database_url.parse(DATABASE_URL, **_db_options)}
 
 # نموذج المستخدم المخصص (UUID + أدوار)
 AUTH_USER_MODEL = "accounts.CustomUser"
