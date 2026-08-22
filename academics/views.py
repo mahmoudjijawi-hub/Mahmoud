@@ -77,6 +77,22 @@ class StudentViewSet(viewsets.ModelViewSet):
     pagination_class = StudentPagination
     http_method_names = ["get", "post", "patch", "put", "delete", "head", "options"]
 
+    def paginate_queryset(self, queryset):
+        """
+        الواجهة تتوقع مصفوفة مباشرة: searchResponse.data.length و students.map
+        لا نُرقّم إلا إذا طُلب page أو page_size صراحة.
+        """
+        params = self.request.query_params
+        if params.get("page") or params.get("page_size"):
+            return super().paginate_queryset(queryset)
+        return None
+
+    def get_serializer(self, *args, **kwargs):
+        # PUT من زر التصفير يرسل حقولاً ناقصة؛ نعامل التحديث كجزئي دائماً
+        if self.action in ("update", "partial_update"):
+            kwargs["partial"] = True
+        return super().get_serializer(*args, **kwargs)
+
     def get_queryset(self):
         # لا يوجد شطب ناعم: الحذف نهائي، فكل سجل موجود هو سجل فعّال
         qs = Student.objects.select_related("user").order_by(
@@ -104,20 +120,25 @@ class StudentViewSet(viewsets.ModelViewSet):
             or params.get("keyword")
         )
 
+        from core.digits import normalize_digits
+
         if special is not None and str(special).strip() != "":
-            special = str(special).strip()
+            special = normalize_digits(str(special).strip())
             qs = qs.filter(special_number=special)
 
         if term is not None and str(term).strip() != "":
-            term = str(term).strip()
+            term = normalize_digits(str(term).strip())
             if term.isdigit():
-                # بحث رقمي = رقم مميز (تطابق تام أو جزئي) مع إمكانية الاسم
-                qs = qs.filter(
-                    Q(special_number=term)
-                    | Q(special_number__icontains=term)
-                    | Q(first_name__icontains=term)
-                    | Q(last_name__icontains=term)
-                )
+                # الواجهة تستخدم ?search=الرقم المميز وتتوقع الطالب نفسه لا أرقاماً جزئية
+                exact = qs.filter(special_number=term)
+                if exact.exists():
+                    qs = exact
+                else:
+                    qs = qs.filter(
+                        Q(special_number__icontains=term)
+                        | Q(first_name__icontains=term)
+                        | Q(last_name__icontains=term)
+                    )
             else:
                 qs = qs.filter(
                     Q(first_name__icontains=term)
@@ -190,6 +211,70 @@ class StudentViewSet(viewsets.ModelViewSet):
     def full_payment(self, request, pk=None):
         """مرادف: POST /api/students/{id}/full-payment/"""
         return self.pay(request, pk=pk)
+
+    @action(detail=True, methods=["post", "put", "patch"], url_path="confirm-payment")
+    def confirm_payment(self, request, pk=None):
+        """
+        زر الدفعة الكاملة في الواجهة:
+        POST /api/students/{id}/confirm-payment/
+        الجسم فارغ — نعلّم الطالب مسدداً ونُكمل أي قسط مفتوح.
+        """
+        from rest_framework.exceptions import ValidationError
+
+        from payments.services import execute_payment
+
+        student = self.get_object()
+        payload = {
+            "student": str(student.id),
+            "special_number": student.special_number,
+            "payment_type": "full",
+        }
+        try:
+            _payment, data = execute_payment(payload, force_full=True)
+        except ValidationError:
+            # لا قسط مسجّل: يكفي تعليم is_payer كما تتوقع الواجهة
+            if not student.is_payer:
+                student.is_payer = True
+                student.save(update_fields=["is_payer"])
+            data = {
+                "success": True,
+                "message": "تم تأكيد الدفع",
+                "detail": "تم تأكيد الدفع",
+                "first_name": student.first_name,
+                "last_name": student.last_name,
+                "special_number": student.special_number,
+                "is_payer": True,
+                "student_is_payer": True,
+            }
+            student.refresh_from_db()
+            return Response(data, status=status.HTTP_200_OK)
+        student.refresh_from_db()
+        if not student.is_payer:
+            student.is_payer = True
+            student.save(update_fields=["is_payer"])
+        data["student_is_payer"] = True
+        data["first_name"] = student.first_name
+        data["last_name"] = student.last_name
+        return Response(data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post", "put", "patch"], url_path="reset-all-payments")
+    def reset_all_payments(self, request):
+        """تصفير دفعة كل الطلاب دفعة واحدة بدل N طلبات PUT."""
+        from payments.services import reset_student_payments
+
+        count = 0
+        for student in self.get_queryset():
+            reset_student_payments(student)
+            count += 1
+        return Response(
+            {
+                "success": True,
+                "message": "تم تصفير الدفع لجميع الطلاب",
+                "detail": "تم تصفير الدفع لجميع الطلاب",
+                "reset_students": count,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=True, methods=["get"], url_path="payments")
     def payments(self, request, pk=None):

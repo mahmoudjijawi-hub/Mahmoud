@@ -99,8 +99,9 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return {
             "access": access,
             "refresh": str(refresh),
-            # مرادف شائع لبعض تطبيقات الفرونت التي تقرأ token بدل access
+            # مرادفات شائعة: token أو accessToken في localStorage
             "token": access,
+            "accessToken": access,
             "role": user.role,
             "user_type": user.user_type,
             "username": user.username,
