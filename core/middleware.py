@@ -11,6 +11,8 @@ from core.models import Subscription
 # مسارات تُستثنى من فحص الاشتراك حتى تظهر رسالة الدخول بوضوح
 _EXEMPT_PREFIXES = (
     "/api/token",
+    "/api/student-detail",
+    "/api/student_detail",
     "/static",
     "/media",
 )

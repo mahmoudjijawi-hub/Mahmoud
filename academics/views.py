@@ -6,7 +6,9 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from academics.models import Teacher, Student
 from academics.serializers import TeacherSerializer, StudentSerializer, StudentPagination
@@ -326,3 +328,90 @@ class StudentViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _find_student_for_portal(lookup):
+    """قبول UUID الطالب أو UUID الحساب أو الرقم المميز."""
+    from core.digits import normalize_digits
+
+    text = normalize_digits(str(lookup or "").strip())
+    if not text:
+        return None
+    if _is_uuid(text):
+        student = Student.objects.filter(pk=text).select_related("user").first()
+        if student is not None:
+            return student
+        return Student.objects.filter(user_id=text).select_related("user").first()
+    return Student.objects.filter(special_number=text).select_related("user").first()
+
+
+class StudentPortalView(APIView):
+    """
+    رابط بروفايل الطالب كما في الفرونت:
+    GET /api/student-detail/{studentId}/  مع Authorization: StudentToken <jwt>
+    POST /api/student-detail/  بالرقم المميز لتسجيل الدخول إلى البروفايل.
+    """
+
+    http_method_names = ["get", "post", "head", "options"]
+    throttle_scope = "special_number"
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def get_throttles(self):
+        if self.request.method != "POST":
+            return []
+        from core.throttles import LoginRateThrottle, SpecialNumberRateThrottle
+
+        return [LoginRateThrottle(), SpecialNumberRateThrottle()]
+
+    def post(self, request, pk=None):
+        """دخول الطالب بالرقم المميز — نفس استجابة /api/token/ مع studentId/studentToken."""
+        from accounts.serializers import CustomTokenObtainPairSerializer
+
+        data = {}
+        if hasattr(request.data, "items"):
+            data.update({k: v for k, v in request.data.items()})
+        elif isinstance(request.data, dict):
+            data.update(request.data)
+        if pk and not data.get("special_number") and not data.get("specialNumber"):
+            data["special_number"] = pk
+        serializer = CustomTokenObtainPairSerializer(data=data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+    def get(self, request, pk=None):
+        """جلب first_name و last_name و is_payer لشاشة البروفايل."""
+        if pk in (None, "", "me", "profile"):
+            student = getattr(request.user, "student_profile", None)
+            if student is None:
+                return Response(
+                    {"detail": "هذا الحساب ليس طالباً."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        else:
+            student = _find_student_for_portal(pk)
+            if student is None:
+                return Response(
+                    {"detail": "لم يتم العثور على طالب بهذا المعرّف."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if request.user.role == "student":
+                own = getattr(request.user, "student_profile", None)
+                if own is None or own.pk != student.pk:
+                    return Response(
+                        {"detail": "لم يتم العثور على طالب بهذا المعرّف."},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+            elif request.user.role != "manager":
+                return Response({"detail": "غير مصرح."}, status=status.HTTP_403_FORBIDDEN)
+
+        data = StudentSerializer(student).data
+        data["success"] = True
+        data["isPayer"] = data.get("is_payer")
+        data["firstName"] = data.get("first_name")
+        data["lastName"] = data.get("last_name")
+        data["studentId"] = str(student.id)
+        return Response(data, status=status.HTTP_200_OK)
