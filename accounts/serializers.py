@@ -128,6 +128,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 payload["studentId"] = str(student.id)
                 payload["student_id"] = str(student.id)
                 payload["id"] = str(student.id)
+                payload["status"] = "success"
                 payload["first_name"] = student.first_name
                 payload["last_name"] = student.last_name
                 payload["is_payer"] = student.is_payer

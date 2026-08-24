@@ -415,3 +415,82 @@ class StudentPortalView(APIView):
         data["lastName"] = data.get("last_name")
         data["studentId"] = str(student.id)
         return Response(data, status=status.HTTP_200_OK)
+
+
+class StudentLoginView(APIView):
+    """
+    شاشة إدخال الرقم المميز:
+    POST /api/student-login/  { "special_number": "..." }
+    نجاح: { status: "success", student_id, access }
+    طالب غير موجود: 404 { error: "..." }
+    """
+
+    permission_classes = (AllowAny,)
+    http_method_names = ["post", "head", "options"]
+    throttle_scope = "special_number"
+
+    def get_throttles(self):
+        from core.throttles import LoginRateThrottle, SpecialNumberRateThrottle
+
+        return [LoginRateThrottle(), SpecialNumberRateThrottle()]
+
+    def post(self, request, *args, **kwargs):
+        from accounts.serializers import CustomTokenObtainPairSerializer, LoginError, _pick
+        from core.digits import normalize_digits
+
+        raw = {}
+        if hasattr(request.data, "items"):
+            raw.update({k: v for k, v in request.data.items()})
+        elif isinstance(request.data, dict):
+            raw.update(request.data)
+        special = str(
+            _pick(raw, "special_number", "specialNumber", "number", "memberID", "memberId")
+            or ""
+        ).strip()
+        special = normalize_digits(special)
+        if not special:
+            return Response(
+                {
+                    "status": "error",
+                    "error": "يرجى إدخال الرقم المميز أولاً",
+                    "detail": "يرجى إدخال الرقم المميز أولاً",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = CustomTokenObtainPairSerializer(
+            data={"special_number": special},
+            context={"request": request},
+        )
+        try:
+            serializer.is_valid(raise_exception=True)
+        except LoginError:
+            return Response(
+                {
+                    "status": "error",
+                    "error": "لا يوجد طالب بهذا الرقم المميز.",
+                    "detail": "لا يوجد طالب بهذا الرقم المميز.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        data = dict(serializer.validated_data)
+        student_id = data.get("student_id") or data.get("studentId")
+        access = data.get("access") or data.get("studentToken") or data.get("token")
+        if data.get("role") != "student" or not student_id or not access:
+            return Response(
+                {
+                    "status": "error",
+                    "error": "لا يوجد طالب بهذا الرقم المميز.",
+                    "detail": "لا يوجد طالب بهذا الرقم المميز.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        data["status"] = "success"
+        data["student_id"] = str(student_id)
+        data["studentId"] = str(student_id)
+        data["access"] = access
+        data["studentToken"] = access
+        data["token"] = access
+        return Response(data, status=status.HTTP_200_OK)
