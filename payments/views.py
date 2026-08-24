@@ -43,7 +43,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         qs = Payment.objects.select_related("student").all()
         user = self.request.user
         if user.role == "student":
-            return qs.filter(student__user=user)
+            return qs.filter(student__user=user).order_by("created_at")
         params = self.request.query_params
         special = (
             params.get("special_number")
@@ -52,6 +52,22 @@ class PaymentViewSet(viewsets.ModelViewSet):
         )
         if special:
             qs = qs.filter(student__special_number=str(special).strip())
+        student_ref = (
+            params.get("student")
+            or params.get("student_id")
+            or params.get("studentId")
+        )
+        if student_ref:
+            student = _resolve_student(student_ref)
+            if student is not None:
+                qs = qs.filter(student=student)
+            elif _is_uuid(student_ref):
+                qs = qs.filter(student_id=student_ref)
+            else:
+                qs = qs.none()
+        # شاشة الأقساط تأخذ FullAmount من آخر عنصر في المصفوفة (الأقدم→الأحدث)
+        if student_ref or special:
+            return qs.order_by("created_at")
         return qs
 
     def get_object(self):

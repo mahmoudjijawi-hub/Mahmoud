@@ -3,6 +3,7 @@ import json
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Sum
 from rest_framework.exceptions import ValidationError
 
 from payments.models import Payment, PaymentTransaction
@@ -47,12 +48,114 @@ def _money(payload, *keys):
         return None
 
 
+def _student_paid_total(student):
+    """مجموع PaidAmount لكل صفوف الطالب (شاشة الأقساط تجمع هذه القيم)."""
+    return Payment.objects.filter(student=student).aggregate(
+        total=Sum("PaidAmount")
+    )["total"] or Decimal("0.00")
+
+
+def _append_installment(student, full_amount, paid_amount):
+    """
+    شاشة الأقساط ترسل PaidAmount = مبلغ هذه الدفعة فقط.
+    كل POST ينشئ صفاً جديداً ولا يستبدل المدفوع السابق.
+    """
+    existing_paid = _student_paid_total(student)
+    remaining_after = full_amount - existing_paid - paid_amount
+    if remaining_after < 0:
+        max_now = full_amount - existing_paid
+        raise ValidationError(
+            {
+                "PaidAmount": (
+                    "المبلغ المدفوع يتجاوز المتبقي. "
+                    f"الحد الأقصى المسموح دفعه الآن هو: {max_now}"
+                ),
+                "detail": (
+                    "المبلغ المدفوع يتجاوز المتبقي. "
+                    f"الحد الأقصى المسموح دفعه الآن هو: {max_now}"
+                ),
+            }
+        )
+    payment = Payment(
+        student=student,
+        FullAmount=full_amount,
+        PaidAmount=paid_amount,
+        Paymentresult=remaining_after,
+        payment_type=(
+            Payment.TYPE_FULL if remaining_after <= 0 else Payment.TYPE_INSTALLMENT
+        ),
+        status=(
+            Payment.STATUS_COMPLETE if remaining_after <= 0 else Payment.STATUS_PENDING
+        ),
+    )
+    payment.save()
+    PaymentTransaction.objects.create(
+        payment=payment,
+        amount=paid_amount,
+        note="قسط",
+    )
+    if remaining_after <= 0 and not student.is_payer:
+        student.is_payer = True
+        student.save(update_fields=["is_payer"])
+    return payment, PaymentSerializer(payment).data
+
+
+def _update_full_amount_only(student, full_amount):
+    """تغيير القسط الكلي دون دفعة جديدة — لا تُصفَّر PaidAmount السابقة."""
+    latest = (
+        Payment.objects.select_for_update()
+        .filter(student=student)
+        .order_by("-created_at")
+        .first()
+    )
+    total_paid = _student_paid_total(student)
+    remaining = full_amount - total_paid
+    if remaining < 0:
+        raise ValidationError(
+            {
+                "FullAmount": "القسط الكلي أصغر من مجموع المدفوع.",
+                "detail": "القسط الكلي أصغر من مجموع المدفوع.",
+            }
+        )
+    if latest is None:
+        payment = Payment(
+            student=student,
+            FullAmount=full_amount,
+            PaidAmount=Decimal("0.00"),
+            Paymentresult=full_amount,
+            payment_type=Payment.TYPE_INSTALLMENT,
+            status=Payment.STATUS_PENDING,
+        )
+        payment.save()
+        PaymentTransaction.objects.create(
+            payment=payment,
+            amount=Decimal("0.00"),
+            note="تحديد القسط الكلي",
+        )
+        return payment, PaymentSerializer(payment).data
+
+    latest.FullAmount = full_amount
+    latest.Paymentresult = remaining
+    latest.status = (
+        Payment.STATUS_COMPLETE if remaining <= 0 else Payment.STATUS_PENDING
+    )
+    if remaining <= 0:
+        latest.payment_type = Payment.TYPE_FULL
+        if not student.is_payer:
+            student.is_payer = True
+            student.save(update_fields=["is_payer"])
+    else:
+        latest.payment_type = Payment.TYPE_INSTALLMENT
+    latest.save()
+    return latest, PaymentSerializer(latest).data
+
+
 @transaction.atomic
 def execute_payment(payload, force_full=False):
     """
     تنفيذ دفع مرن يُرجع (payment, response_dict).
-    - يكمل قسطاً مفتوحاً إن وُجد
-    - ينشئ دفعة كاملة عند توفر المبلغ
+    - شاشة الأقساط: كل قسط صف جديد (PaidAmount = الزيادة هذه المرة)
+    - زر الدفعة الكاملة (force_full): يكمل القسط المفتوح في مكانه
     """
     payload = dict(payload or {})
     if force_full:
@@ -87,6 +190,24 @@ def execute_payment(payload, force_full=False):
         serializer.is_valid(raise_exception=True)
         payment = serializer.save()
         return payment, PaymentSerializer(payment).data
+
+    # شاشة الأقساط (InstallmentManager): PaidAmount دفعة جزئية تُضاف كسجل مستقل.
+    if (
+        not force_full
+        and full_amount is not None
+        and paid_amount is not None
+        and paid_amount > Decimal("0.00")
+        and paid_amount < full_amount
+    ):
+        return _append_installment(student, full_amount, paid_amount)
+
+    # تحديث القسط الكلي فقط (PaidAmount = 0) دون مسح المدفوع السابق.
+    if (
+        not force_full
+        and full_amount is not None
+        and paid_amount == Decimal("0.00")
+    ):
+        return _update_full_amount_only(student, full_amount)
 
     open_payment = (
         Payment.objects.select_for_update()
