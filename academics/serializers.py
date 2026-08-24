@@ -91,6 +91,17 @@ class TeacherSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["user"] = str(instance.user_id)
+        # شاشة الطالب تستخدم profile_image مع صورة افتراضية إن كانت فارغة
+        data["profile_image"] = None
+        request = self.context.get("request")
+        if instance.cv_file:
+            try:
+                url = instance.cv_file.url
+                data["profile_image"] = (
+                    request.build_absolute_uri(url) if request is not None else url
+                )
+            except ValueError:
+                data["profile_image"] = None
         return data
 
     def _gender_value(self, value):
