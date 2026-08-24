@@ -308,6 +308,53 @@ class PostmanAPITests(TestCase):
         self.assertEqual(patch.status_code, 200)
         self.assertEqual(patch.data["first_name"], "djoser")
 
+    def test_student_token_can_list_teachers_for_portal(self):
+        """شاشة أساتذة الطالب: GET /api/teachers/ مع StudentToken يعيد مصفوفة الأساتذة."""
+        self._make_teacher("8101")
+        student = self._make_student("8102")
+        login = APIClient().post(
+            "/api/student-login/",
+            {"special_number": student.special_number},
+            format="json",
+        )
+        self.assertEqual(login.status_code, 200, login.data)
+        token = login.data["access"]
+        client = APIClient()
+        listing = client.get(
+            "/api/teachers/",
+            HTTP_AUTHORIZATION=f"StudentToken {token}",
+        )
+        self.assertEqual(listing.status_code, 200, listing.data)
+        teachers = listing.data["results"] if isinstance(listing.data, dict) else listing.data
+        self.assertIsInstance(teachers, list, listing.data)
+        self.assertGreaterEqual(len(teachers), 1)
+        row = next(
+            (item for item in teachers if item.get("first_name") == "أستاذ"),
+            teachers[0],
+        )
+        self.assertIn("first_name", row)
+        self.assertIn("last_name", row)
+        self.assertIn("expertise", row)
+        self.assertIn("cv", row)
+        self.assertIn("teacher_number", row)
+        self.assertIn("profile_image", row)
+
+        create_attempt = client.post(
+            "/api/teachers/",
+            {
+                "first_name": "ممنوع",
+                "last_name": "طالب",
+                "special_number": "8103",
+                "gender": True,
+                "teacher_number": "0999999999",
+                "expertise": "كيمياء",
+                "cv": "لا",
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"StudentToken {token}",
+        )
+        self.assertEqual(create_attempt.status_code, 403)
+
     def test_add_student_patch_and_delete(self):
         """طلبات add student و patch students و delete student."""
         create = self.client.post(

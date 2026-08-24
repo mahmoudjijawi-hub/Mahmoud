@@ -48,9 +48,9 @@ class TeacherViewSet(viewsets.ModelViewSet):
         # الأستاذ يرى ملفه فقط
         if user.role == "teacher":
             return qs.filter(user=user)
-        # الطالب لا يرى قائمة الأساتذة كاملة — يُصفَّى عبر البرامج لاحقاً
+        # شاشة الطالب تعرض كل الأساتذة: الاسم والمادة والسيرة والهاتف
         if user.role == "student":
-            return qs.none()
+            return qs.order_by("first_name", "last_name")
         teacher_id = self.request.query_params.get("teacher_id")
         if teacher_id:
             qs = qs.filter(pk=teacher_id)
