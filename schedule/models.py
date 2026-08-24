@@ -16,7 +16,9 @@ class TimeTable(models.Model):
     Subject = models.CharField(max_length=30, verbose_name="المادة")
     Teacher = models.ForeignKey(
         Teacher,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="time_tables",
         verbose_name="الأستاذ",
     )

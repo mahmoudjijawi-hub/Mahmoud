@@ -1012,6 +1012,41 @@ class PostmanAPITests(TestCase):
         self.assertEqual(delete.status_code, 204)
         self.assertFalse(TimeTable.objects.filter(pk=row_id).exists())
 
+        from attendance.models import Attendance
+
+        student = self._make_student("558")
+        teacher = self._make_teacher("887")
+        frontend = self.client.post(
+            "/api/time_table/",
+            {
+                "student": [str(student.id)],
+                "day": "2026-08-24",
+                "hour": "14:30:45",
+                "subject": "رياضيات",
+                "teacher": str(teacher.id),
+            },
+            format="json",
+        )
+        self.assertEqual(frontend.status_code, 201, frontend.data)
+        self.assertEqual(frontend.data["Subject"], "رياضيات")
+        self.assertTrue(
+            Attendance.objects.filter(
+                student=student, Date="2026-08-24", Status=Attendance.STATUS_PRESENT
+            ).exists()
+        )
+
+        no_teacher = self.client.post(
+            "/api/time_table/",
+            {
+                "student": [str(student.id)],
+                "day": "2026-08-25",
+                "hour": "9:05:01 AM",
+                "subject": "فيزياء",
+            },
+            format="json",
+        )
+        self.assertEqual(no_teacher.status_code, 201, no_teacher.data)
+
     def test_program_get_and_create(self):
         """طلب program: GET /api/programs/ مع إمكانية الإنشاء بنفس الحقول."""
         teacher = self._make_teacher("889")
