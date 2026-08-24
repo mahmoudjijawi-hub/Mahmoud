@@ -98,7 +98,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         touch_activity(user)
         refresh = self.get_token(user)
         access = str(refresh.access_token)
-        return {
+        payload = {
             "access": access,
             "refresh": str(refresh),
             # مرادفات شائعة: token أو accessToken في localStorage
@@ -116,6 +116,27 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 "last_name": user.last_name,
             },
         }
+        # شاشة بروفايل الطالب تخزّن studentId و studentToken في localStorage
+        if user.role == CustomUser.ROLE_STUDENT:
+            from academics.models import Student
+
+            student = getattr(user, "student_profile", None)
+            if student is None:
+                student = Student.objects.filter(user=user).first()
+            if student is not None:
+                payload["studentToken"] = access
+                payload["studentId"] = str(student.id)
+                payload["student_id"] = str(student.id)
+                payload["id"] = str(student.id)
+                payload["first_name"] = student.first_name
+                payload["last_name"] = student.last_name
+                payload["is_payer"] = student.is_payer
+                payload["special_number"] = student.special_number
+                payload["student_name"] = f"{student.first_name} {student.last_name}".strip()
+                payload["user"]["first_name"] = student.first_name
+                payload["user"]["last_name"] = student.last_name
+                payload["user"]["studentId"] = str(student.id)
+        return payload
 
     def _resolve_manager_user(self, username, password):
         """
@@ -212,8 +233,16 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def _validate_special_number(self, request, special_number):
         """دخول/توجيه بالرقم المميز مع throttling على مستوى الـ View."""
+        from core.digits import normalize_digits
+        from academics.models import Student
+
+        special_number = normalize_digits(str(special_number).strip())
         # حد طول التوجيه العام 7 للمدير و10 للأستاذ/الطالب يُفحص حسب الدور بعد الجلب
         user = CustomUser.objects.filter(special_number=special_number, is_active=True).first()
+        if user is None:
+            student = Student.objects.filter(special_number=special_number).select_related("user").first()
+            if student is not None and student.user_id and student.user.is_active:
+                user = student.user
         if user is None:
             auth_logger.info("failed_login reason=unknown_special_number")
             self._auth_error("الرقم المميز غير صحيح.", "unknown_special_number")

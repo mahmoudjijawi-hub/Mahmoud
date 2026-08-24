@@ -379,8 +379,8 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
-    # Bearer القياسي + Token/JWT لأن بعض واجهات الفرونت تستخدمهما
-    "AUTH_HEADER_TYPES": ("Bearer", "Token", "JWT"),
+    # Bearer/Token/JWT + StudentToken كما ترسل شاشة بروفايل الطالب
+    "AUTH_HEADER_TYPES": ("Bearer", "Token", "JWT", "StudentToken"),
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
     "TOKEN_OBTAIN_SERIALIZER": "accounts.serializers.CustomTokenObtainPairSerializer",

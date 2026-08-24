@@ -1238,6 +1238,69 @@ class PostmanAPITests(TestCase):
         other = client.get(f"/api/students/{second.id}/")
         self.assertIn(other.status_code, (403, 404))
 
+    def test_student_special_number_opens_profile_via_student_detail(self):
+        """شاشة الطالب: الرقم المميز → studentId/studentToken ثم GET /api/student-detail/."""
+        student = self._make_student("4401")
+        student.is_payer = True
+        student.save(update_fields=["is_payer"])
+
+        login = APIClient().post(
+            "/api/token/",
+            {"special_number": "4401"},
+            format="json",
+        )
+        self.assertEqual(login.status_code, 200, login.data)
+        self.assertEqual(login.data["role"], "student")
+        self.assertEqual(str(login.data["studentId"]), str(student.id))
+        self.assertEqual(login.data["studentToken"], login.data["access"])
+        self.assertEqual(login.data["first_name"], "طالب")
+        self.assertEqual(login.data["last_name"], "تجربة")
+        self.assertTrue(login.data["is_payer"])
+
+        student_id = login.data["studentId"]
+        student_token = login.data["studentToken"]
+        client = APIClient()
+        profile = client.get(
+            f"/api/student-detail/{student_id}/",
+            HTTP_AUTHORIZATION=f"StudentToken {student_token}",
+        )
+        self.assertEqual(profile.status_code, 200, profile.data)
+        self.assertEqual(profile.data["first_name"], "طالب")
+        self.assertEqual(profile.data["last_name"], "تجربة")
+        self.assertTrue(profile.data["is_payer"])
+
+        by_number = client.get(
+            "/api/student-detail/4401/",
+            HTTP_AUTHORIZATION=f"StudentToken {student_token}",
+        )
+        self.assertEqual(by_number.status_code, 200, by_number.data)
+        self.assertEqual(str(by_number.data["id"]), str(student.id))
+
+        by_user = client.get(
+            f"/api/student-detail/{student.user_id}/",
+            HTTP_AUTHORIZATION=f"StudentToken {student_token}",
+        )
+        self.assertEqual(by_user.status_code, 200, by_user.data)
+
+        portal_login = APIClient().post(
+            "/api/student-detail/",
+            {"special_number": "4401"},
+            format="json",
+        )
+        self.assertEqual(portal_login.status_code, 200, portal_login.data)
+        self.assertEqual(str(portal_login.data["studentId"]), str(student.id))
+        self.assertIn("studentToken", portal_login.data)
+
+        other = self._make_student("4402")
+        other_profile = client.get(
+            f"/api/student-detail/{other.id}/",
+            HTTP_AUTHORIZATION=f"StudentToken {student_token}",
+        )
+        self.assertEqual(other_profile.status_code, 404)
+
+        missing_auth = APIClient().get(f"/api/student-detail/{student_id}/")
+        self.assertEqual(missing_auth.status_code, 401)
+
     def test_teacher_token_cannot_create_student(self):
         teacher = self._make_teacher("777")
         token = self._token_for_special(teacher.special_number)
