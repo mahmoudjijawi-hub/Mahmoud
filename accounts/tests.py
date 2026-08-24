@@ -710,6 +710,119 @@ class PostmanAPITests(TestCase):
         self.assertEqual(delete.status_code, 204)
         self.assertFalse(Payment.objects.filter(pk=pay_id).exists())
 
+    def test_installment_manager_appends_rows_and_filters_by_student(self):
+        """شاشة الأقساط: كل دفعة صف جديد، والقائمة تُفلتر بـ ?student=."""
+        student = self._make_student("9901")
+        other = self._make_student("9902")
+        self.client.post(
+            "/api/payments/",
+            {
+                "student": str(other.id),
+                "FullAmount": "999.00",
+                "PaidAmount": "999.00",
+                "Paymentresult": "0.00",
+            },
+            format="json",
+        )
+
+        first = self.client.post(
+            "/api/payments/",
+            {
+                "student": str(student.id),
+                "FullAmount": "5000.00",
+                "PaidAmount": "1000.00",
+                "Paymentresult": "4000.00",
+            },
+            format="json",
+        )
+        self.assertIn(first.status_code, (200, 201), first.data)
+        self.assertEqual(Decimal(first.data["PaidAmount"]), Decimal("1000.00"))
+        self.assertEqual(Decimal(first.data["Paymentresult"]), Decimal("4000.00"))
+
+        second = self.client.post(
+            "/api/payments/",
+            {
+                "student": str(student.id),
+                "FullAmount": "5000.00",
+                "PaidAmount": "1000.00",
+                "Paymentresult": "3000.00",
+            },
+            format="json",
+        )
+        self.assertIn(second.status_code, (200, 201), second.data)
+        self.assertNotEqual(first.data["id"], second.data["id"])
+        self.assertEqual(Decimal(second.data["PaidAmount"]), Decimal("1000.00"))
+        self.assertEqual(Decimal(second.data["Paymentresult"]), Decimal("3000.00"))
+        self.assertEqual(Payment.objects.filter(student=student).count(), 2)
+
+        listing = self.client.get(f"/api/payments/?student={student.id}")
+        self.assertEqual(listing.status_code, 200)
+        self.assertIsInstance(listing.data, list, listing.data)
+        self.assertEqual(len(listing.data), 2)
+        self.assertTrue(all(str(row["student"]) == str(student.id) for row in listing.data))
+        total_paid = sum(Decimal(row["PaidAmount"]) for row in listing.data)
+        self.assertEqual(total_paid, Decimal("2000.00"))
+        self.assertEqual(Decimal(listing.data[-1]["FullAmount"]), Decimal("5000.00"))
+        self.assertEqual(str(listing.data[0]["id"]), str(first.data["id"]))
+        self.assertEqual(str(listing.data[1]["id"]), str(second.data["id"]))
+
+        last = self.client.post(
+            "/api/payments/",
+            {
+                "student": str(student.id),
+                "FullAmount": "5000.00",
+                "PaidAmount": "3000.00",
+                "Paymentresult": "0.00",
+            },
+            format="json",
+        )
+        self.assertIn(last.status_code, (200, 201), last.data)
+        self.assertEqual(Decimal(last.data["Paymentresult"]), Decimal("0.00"))
+        self.assertEqual(Payment.objects.filter(student=student).count(), 3)
+
+        mark_paid = self.client.patch(
+            f"/api/students/{student.id}/",
+            {"is_payer": True},
+            format="json",
+        )
+        self.assertEqual(mark_paid.status_code, 200, mark_paid.data)
+        student.refresh_from_db()
+        self.assertTrue(student.is_payer)
+
+        for pay in Payment.objects.filter(student=student):
+            deleted = self.client.delete(f"/api/payments/{pay.id}/")
+            self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(Payment.objects.filter(student=student).exists())
+
+        # تحديث القسط الكلي بدون دفعة لا يمحو المدفوع السابق
+        other_student = self._make_student("9903")
+        self.client.post(
+            "/api/payments/",
+            {
+                "student": str(other_student.id),
+                "FullAmount": "4000.00",
+                "PaidAmount": "1000.00",
+                "Paymentresult": "3000.00",
+            },
+            format="json",
+        )
+        bump = self.client.post(
+            "/api/payments/",
+            {
+                "student": str(other_student.id),
+                "FullAmount": "6000.00",
+                "PaidAmount": "0.00",
+                "Paymentresult": "5000.00",
+            },
+            format="json",
+        )
+        self.assertIn(bump.status_code, (200, 201), bump.data)
+        self.assertEqual(Payment.objects.filter(student=other_student).count(), 1)
+        row = Payment.objects.get(student=other_student)
+        self.assertEqual(row.PaidAmount, Decimal("1000.00"))
+        self.assertEqual(row.FullAmount, Decimal("6000.00"))
+        self.assertEqual(row.Paymentresult, Decimal("5000.00"))
+
     def test_full_payment_button_patterns(self):
         """زر دفعة كاملة يعمل بعدة أشكال طلب من الفرونت."""
         student = self._make_student("778")
