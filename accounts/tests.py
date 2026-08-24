@@ -1301,6 +1301,37 @@ class PostmanAPITests(TestCase):
         missing_auth = APIClient().get(f"/api/student-detail/{student_id}/")
         self.assertEqual(missing_auth.status_code, 401)
 
+    def test_student_login_endpoint_matches_frontend(self):
+        """POST /api/student-login/ كما في شاشة الرقم المميز: status و student_id و access."""
+        student = self._make_student("5501")
+        login = APIClient().post(
+            "/api/student-login/",
+            {"special_number": "5501"},
+            format="json",
+        )
+        self.assertEqual(login.status_code, 200, login.data)
+        self.assertEqual(login.data["status"], "success")
+        self.assertEqual(str(login.data["student_id"]), str(student.id))
+        self.assertTrue(login.data.get("access"))
+        self.assertEqual(login.data["access"], login.data["studentToken"])
+
+        missing = APIClient().post(
+            "/api/student-login/",
+            {"special_number": "9999999"},
+            format="json",
+        )
+        self.assertEqual(missing.status_code, 404)
+        self.assertTrue(missing.data.get("error"))
+
+        teacher = self._make_teacher("5502")
+        as_teacher = APIClient().post(
+            "/api/student-login/",
+            {"special_number": teacher.special_number},
+            format="json",
+        )
+        self.assertEqual(as_teacher.status_code, 404)
+        self.assertTrue(as_teacher.data.get("error"))
+
     def test_teacher_token_cannot_create_student(self):
         teacher = self._make_teacher("777")
         token = self._token_for_special(teacher.special_number)
