@@ -119,9 +119,9 @@ class Student(models.Model):
     address = models.CharField(max_length=100, verbose_name="عنوان السكن")
     personal_notes = models.CharField(max_length=100, blank=True, default="", verbose_name="ملاحظات")
     is_payer = models.BooleanField(default=False, verbose_name="مسدد")
-    class1 = models.CharField(max_length=30, blank=True, default="", verbose_name="مادة 1")
-    class2 = models.CharField(max_length=30, blank=True, default="", verbose_name="مادة 2")
-    class3 = models.CharField(max_length=30, blank=True, default="", verbose_name="مادة 3")
+    class1 = models.CharField(max_length=255, blank=True, default="", verbose_name="المرحلة والفرع")
+    class2 = models.CharField(max_length=255, blank=True, default="", verbose_name="المواد")
+    class3 = models.CharField(max_length=255, blank=True, default="", verbose_name="الشعبة")
     subjects = models.ManyToManyField(
         Subject,
         blank=True,

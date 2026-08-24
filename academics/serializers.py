@@ -175,9 +175,9 @@ class StudentSerializer(serializers.ModelSerializer):
     address = serializers.CharField(max_length=100)
     personal_notes = serializers.CharField(max_length=100, required=False, allow_blank=True)
     is_payer = FlexibleBooleanField(required=False)
-    class1 = serializers.CharField(max_length=30, required=False, allow_blank=True)
-    class2 = serializers.CharField(max_length=30, required=False, allow_blank=True)
-    class3 = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    class1 = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    class2 = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    class3 = serializers.CharField(max_length=255, required=False, allow_blank=True)
     subjects = serializers.SerializerMethodField()
     confirm_special_number = FlexibleCharField(max_length=10, required=False, write_only=True)
 
@@ -418,7 +418,7 @@ class StudentSerializer(serializers.ModelSerializer):
     def _raw_has_subject_list(self, raw):
         if not isinstance(raw, dict) and not hasattr(raw, "get"):
             return False
-        for key in ("subjects", "subject_names", "subjectNames", "classes", "class_list", "classList"):
+        for key in ("subjects", "subjects_list", "subjectsList", "subject_names", "subjectNames", "classes", "class_list", "classList"):
             if isinstance(raw.get(key), (list, tuple, set)):
                 return True
         if isinstance(raw.get("class1"), (list, tuple, set)):
@@ -525,9 +525,12 @@ class StudentSerializer(serializers.ModelSerializer):
         data["specialNumber"] = data.get("special_number")
         subjects = data.get("subjects") or []
         data["classes"] = subjects
-        # شاشة العلامات تفحص: class1.includes(المرحلة) && class1.includes(الصف)
+        data["subjects_list"] = subjects
+        # شاشة العلامات: class1.includes(المرحلة) && class1.includes(الصف)
+        # شاشة التعديل تخزّن المرحلة والفرع في class1، والمواد في class2
         level = (instance.class1 or "").strip()
         grade = (instance.class2 or "").strip()
-        if grade and grade not in level:
+        grade_tokens = ("علمي", "أدبي", "عاشر", "تاسع", "ثامن", "سابع")
+        if grade in grade_tokens and grade not in level:
             data["class1"] = f"{level} {grade}".strip()
         return data
