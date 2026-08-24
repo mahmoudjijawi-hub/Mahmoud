@@ -451,6 +451,39 @@ class PostmanAPITests(TestCase):
         self.assertIn("بكالوريا", row["class1"])
         self.assertIn("علمي", row["class1"])
 
+    def test_student_edit_post_path_and_subjects_list(self):
+        """شاشة تعديل المسار: POST /api/students/edit-post/{id}/ مع subjects_list."""
+        student = self._make_student("6701")
+        payload = {
+            "class1": "بكالوريا، علمي",
+            "class2": "عربي، انكليزي، فرنسي، علوم، فيزياء، كيمياء، رياضيات، وطنية، ديانة",
+            "class3": "الشعبة الأولى",
+            "student_class": "1",
+            "subjects_list": [
+                "عربي",
+                "انكليزي",
+                "فرنسي",
+                "علوم",
+                "فيزياء",
+                "كيمياء",
+                "رياضيات",
+                "وطنية",
+                "ديانة",
+            ],
+        }
+        response = self.client.post(
+            f"/api/students/edit-post/{student.id}/", payload, format="json"
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["class1"], "بكالوريا، علمي")
+        self.assertIn("رياضيات", response.data["class2"])
+        self.assertEqual(response.data["class3"], "الشعبة الأولى")
+        self.assertIn("رياضيات", response.data["subjects_list"])
+        self.assertEqual(len(response.data["subjects_list"]), 9)
+        student.refresh_from_db()
+        self.assertEqual(student.subjects.count(), 9)
+        self.assertEqual(student.student_class, "1")
+
     def test_delete_student_is_permanent_everywhere(self):
         """الحذف يزيل الطالب وحسابه ودفعاته من قاعدة البيانات نهائياً."""
         student = self._make_student("9099")

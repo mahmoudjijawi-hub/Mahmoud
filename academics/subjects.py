@@ -5,6 +5,8 @@ from academics.models import Subject
 
 _SUBJECT_LIST_KEYS = (
     "subjects",
+    "subjects_list",
+    "subjectsList",
     "subject_names",
     "subjectNames",
     "classes",
@@ -65,8 +67,15 @@ def collect_subject_names(data):
     if isinstance(class_value, (list, tuple, set)):
         names.extend(_split_names(class_value))
 
-    # class1/2/3 النصية في الواجهة = مرحلة/صف/شعبة وليست مواد
-    for key in ("class1", "class2", "class3"):
+    # class1 نص المرحلة/الفرع — لا نعتبره مواد
+    # class2 في شاشة التعديل = المواد مفصولة بفاصلة عربية
+    class2 = raw.get("class2")
+    if isinstance(class2, str) and ("،" in class2 or "," in class2):
+        names.extend(_split_names(class2))
+    elif isinstance(class2, (list, tuple, set)):
+        names.extend(_split_names(class2))
+
+    for key in ("class1", "class3"):
         value = raw.get(key)
         if isinstance(value, (list, tuple, set)):
             names.extend(_split_names(value))

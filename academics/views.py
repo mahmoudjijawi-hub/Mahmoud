@@ -89,7 +89,7 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     def get_serializer(self, *args, **kwargs):
         # PUT من زر التصفير يرسل حقولاً ناقصة؛ نعامل التحديث كجزئي دائماً
-        if self.action in ("update", "partial_update"):
+        if self.action in ("update", "partial_update", "edit_post"):
             kwargs["partial"] = True
         return super().get_serializer(*args, **kwargs)
 
@@ -275,6 +275,19 @@ class StudentViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    @action(detail=True, methods=["post", "put", "patch"], url_path="edit-post")
+    def edit_post(self, request, pk=None):
+        """
+        شاشة تعديل المسار:
+        POST /api/students/edit-post/{id}/
+        أو POST /api/students/{id}/edit-post/
+        """
+        student = self.get_object()
+        serializer = self.get_serializer(student, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get"], url_path="payments")
     def payments(self, request, pk=None):

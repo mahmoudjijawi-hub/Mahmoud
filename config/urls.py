@@ -43,6 +43,12 @@ urlpatterns = [
     path("api/token/", CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
     # POST /api/token/refresh/ — مطابق لاسم الطلب refresh
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    # شاشة تعديل المسار تستخدم هذا الشكل حرفياً
+    path(
+        "api/students/edit-post/<uuid:pk>/",
+        StudentViewSet.as_view({"post": "edit_post", "put": "edit_post", "patch": "edit_post"}),
+        name="student-edit-post",
+    ),
     # بقية موارد الـ API تحت /api/
     path("api/", include(router.urls)),
 ]
