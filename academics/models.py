@@ -116,12 +116,18 @@ class Student(models.Model):
     student_class = models.CharField(max_length=20, verbose_name="الصف/المرحلة")
     parent_number = models.CharField(max_length=10, verbose_name="هاتف الأهل")
     student_number = models.CharField(max_length=10, verbose_name="هاتف الطالب")
-    address = models.CharField(max_length=30, verbose_name="عنوان السكن")
-    personal_notes = models.CharField(max_length=25, blank=True, default="", verbose_name="ملاحظات")
+    address = models.CharField(max_length=100, verbose_name="عنوان السكن")
+    personal_notes = models.CharField(max_length=100, blank=True, default="", verbose_name="ملاحظات")
     is_payer = models.BooleanField(default=False, verbose_name="مسدد")
-    class1 = models.CharField(max_length=30, blank=True, default="", verbose_name="مادة 1")
-    class2 = models.CharField(max_length=30, blank=True, default="", verbose_name="مادة 2")
-    class3 = models.CharField(max_length=30, blank=True, default="", verbose_name="مادة 3")
+    class1 = models.CharField(max_length=255, blank=True, default="", verbose_name="المرحلة والفرع")
+    class2 = models.CharField(max_length=255, blank=True, default="", verbose_name="المواد")
+    class3 = models.CharField(max_length=255, blank=True, default="", verbose_name="الشعبة")
+    subjects = models.ManyToManyField(
+        Subject,
+        blank=True,
+        related_name="students",
+        verbose_name="المواد",
+    )
     stage = models.ForeignKey(
         Stage,
         on_delete=models.SET_NULL,
@@ -138,8 +144,6 @@ class Student(models.Model):
         related_name="students",
         verbose_name="الشعبة",
     )
-    # شطب ناعم للحفاظ على السجلات التاريخية
-    is_active = models.BooleanField(default=True, verbose_name="نشط")
 
     class Meta:
         verbose_name = "طالب"

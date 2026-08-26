@@ -78,10 +78,14 @@ INSTALLED_APPS = [
 
 # سلسلة الوسطاء بالترتيب المطلوب أمنياً
 MIDDLEWARE = [
+    # أولاً: ثبّت HTTPS خلف الـ proxy قبل SecurityMiddleware حتى لا يُفقد جسم POST
+    "core.middleware.ForceHttpsBehindProxyMiddleware",
     # أمان Django الأساسي (HSTS و XSS headers حسب الإعدادات)
     "django.middleware.security.SecurityMiddleware",
     # CORS قبل CommonMiddleware حتى تُعالَج preflight
     "corsheaders.middleware.CorsMiddleware",
+    # إصلاح الشرطة المائلة لمسارات API قبل CommonMiddleware حتى لا يضيع جسم POST
+    "core.middleware.ApiTrailingSlashMiddleware",
     # الجلسات قبل المصادقة
     "django.contrib.sessions.middleware.SessionMiddleware",
     # معالجة عامة للطلبات
@@ -123,21 +127,74 @@ TEMPLATES = [
 # مدخل WSGI
 WSGI_APPLICATION = "config.wsgi.application"
 
-# قاعدة بيانات PostgreSQL السحابية (Neon) عبر dj-database-url من ملف .env
-import dj_database_url
+# ───────────────────────── قاعدة البيانات ─────────────────────────
+# الأولوية: DATABASE_URL ← متغيرات DB_* المنفصلة ← Neon الافتراضية.
+# لا يُفرض مشغّل C معيّن: ENGINE القياسي يستخدم psycopg (3) إن وُجد
+# وإلا psycopg2، ما يجعل Termux يعمل بـ psycopg النقي + libpq فقط.
+import importlib.util  # noqa: E402
+from urllib.parse import quote as _url_quote  # noqa: E402
 
-DATABASES = {
-    "default": dj_database_url.parse(
-        env(
-            "DATABASE_URL",
-            default=(
-                "postgresql://neondb_owner:npg_4nOL7skoMpib@"
-                "ep-late-block-ax2kg9c0.c-4.us-east-2.aws.neon.tech/"
-                "neondb?sslmode=require"
-            ),
-        )
+import dj_database_url  # noqa: E402
+from django.core.exceptions import ImproperlyConfigured  # noqa: E402
+
+_NEON_DATABASE_URL = (
+    "postgresql://neondb_owner:npg_4nOL7skoMpib@"
+    "ep-late-block-ax2kg9c0.c-4.us-east-2.aws.neon.tech/"
+    "neondb?sslmode=require"
+)
+
+
+def _build_url_from_db_env():
+    """بناء رابط اتصال من متغيرات DB_* المنفصلة إن استُخدمت بدل DATABASE_URL."""
+    name = env("DB_NAME", default="").strip()
+    if not name:
+        return ""
+    user = _url_quote(env("DB_USER", default="postgres"), safe="")
+    password = _url_quote(env("DB_PASSWORD", default=""), safe="")
+    host = env("DB_HOST", default="127.0.0.1")
+    port = env("DB_PORT", default="5432")
+    sslmode = env("DB_SSLMODE", default="").strip()
+    credentials = f"{user}:{password}" if password else user
+    url = f"postgresql://{credentials}@{host}:{port}/{name}"
+    return f"{url}?sslmode={sslmode}" if sslmode else url
+
+
+def _postgres_driver_installed():
+    """هل يوجد مشغّل PostgreSQL مثبّت فعلاً (psycopg 3 أو psycopg2)؟"""
+    return any(
+        importlib.util.find_spec(module) is not None
+        for module in ("psycopg", "psycopg2")
     )
+
+
+DATABASE_URL = env("DATABASE_URL", default="").strip() or _build_url_from_db_env()
+if not DATABASE_URL:
+    DATABASE_URL = env("DEFAULT_DATABASE_URL", default=_NEON_DATABASE_URL)
+
+_is_postgres = DATABASE_URL.startswith(("postgres://", "postgresql://"))
+if _is_postgres and not _postgres_driver_installed():
+    # قاعدة المشروع PostgreSQL دائماً. لا نتحول إلى SQLite تلقائياً حتى لا
+    # يعمل التطبيق صامتاً على قاعدة فارغة محلية بدل بيانات المعهد الحقيقية.
+    if not env.bool("ALLOW_SQLITE_FALLBACK", default=False):
+        raise ImproperlyConfigured(
+            "مشغّل PostgreSQL غير مثبّت. ثبّته أولاً:\n"
+            '  Termux : pkg install postgresql && pip install "psycopg>=3.1"\n'
+            '  غير ذلك: pip install "psycopg[binary]>=3.1"\n'
+            "للتجربة على SQLite مؤقتاً فقط: ALLOW_SQLITE_FALLBACK=True"
+        )
+    DATABASE_URL = f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+    _is_postgres = False
+
+_db_options = {
+    # اتصالات مُعمَّرة تقلل زمن فتح الاتصال مع Neon
+    "conn_max_age": env.int("DB_CONN_MAX_AGE", default=600),
+    "conn_health_checks": True,
 }
+if _is_postgres:
+    # لا نفرض SSL على SQLite، ونحترم sslmode الموجود في الرابط أصلاً
+    _db_options["ssl_require"] = env.bool("DB_SSL_REQUIRE", default=False)
+
+DATABASES = {"default": dj_database_url.parse(DATABASE_URL, **_db_options)}
 
 # نموذج المستخدم المخصص (UUID + أدوار)
 AUTH_USER_MODEL = "accounts.CustomUser"
@@ -225,16 +282,37 @@ else:
 CORS_ALLOW_ALL_ORIGINS = env("CORS_ALLOW_ALL_ORIGINS")
 # السماح بحمل التوكن من الواجهة الأمامية إن لزم
 CORS_ALLOW_CREDENTIALS = True
-# السماح بكل الرؤوس والطرق حتى لا تُحجب طلبات الفرونت (preflight)
-CORS_ALLOW_HEADERS = ["*"]
-CORS_ALLOW_METHODS = ["*"]
+# ممنوع "*" هنا: مع Allow-Credentials يرفض المتصفح البدل الشامل ويحجب
+# كل طلب يحمل Authorization (preflight يفشل فيبدو الزر وكأنه لا يعمل).
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "accept-language",
+    "authorization",
+    "cache-control",
+    "content-type",
+    "content-disposition",
+    "dnt",
+    "if-modified-since",
+    "keep-alive",
+    "origin",
+    "pragma",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+    "ngrok-skip-browser-warning",
+]
+CORS_ALLOW_METHODS = ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT", "HEAD"]
+# رؤوس يستطيع الفرونت قراءتها من الاستجابة
+CORS_EXPOSE_HEADERS = ["content-type", "content-disposition"]
 
 # الواجهة الأمامية تعتمد JWT: لا نعطّل CSRF عالمياً لأن /admin/ يحتاجه.
 # مسارات API تستخدم JWTAuthentication وليست SessionAuthentication، لذلك لا تُفرض CSRF عليها.
 CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
 
-# جلسة المدير: 30 دقيقة خمول، وتجديد العداد مع كل طلب
-SESSION_COOKIE_AGE = 30 * 60
+# جلسة المدير والـ API: ساعة خمول، والنشاط يجدّد المهلة فلا تُغلق أثناء الاستخدام
+SESSION_IDLE_SECONDS = 60 * 60
+SESSION_COOKIE_AGE = SESSION_IDLE_SECONDS
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 # كوكي آمن فقط عند HTTPS الفعلي لتفادي حلقة إعادة توجيه /admin/ على HTTP
@@ -251,6 +329,10 @@ SESSION_COOKIE_DOMAIN = _session_domain or None
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 SECURE_BROWSER_XSS_FILTER = True
+# Render/nginx ينهي SSL ثم يمرّر HTTP داخلياً — بدون هذا يصبح is_secure()=False
+# فيُعاد توجيه POST إلى HTTPS بـ 301 ويضيع جسم الدفع (زر الدفع يفشل صامتاً).
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
 if not DEBUG and IS_HTTPS:
     # إعادة توجيه HTTP إلى HTTPS في الإنتاج فقط بعد SSL
     SECURE_SSL_REDIRECT = True
@@ -281,7 +363,7 @@ REST_FRAMEWORK = {
         "user": "600/minute" if DEBUG else "300/minute",
         "login": "30/minute" if DEBUG else "5/minute",
         "special_number": "30/minute" if DEBUG else "5/minute",
-        "payments": "20/minute",
+        "payments": "120/minute" if DEBUG else "60/minute",
     },
     "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",
     "DEFAULT_RENDERER_CLASSES": (
@@ -289,18 +371,20 @@ REST_FRAMEWORK = {
     ),
 }
 
-# JWT: صلاحية قصيرة للوصول وإمكانية إبطال التحديث
+# JWT: الخمول يُغلق بعد ساعة؛ التوكن نفسه أطول حتى لا تُقطع الجلسة أثناء العمل
 from datetime import timedelta  # noqa: E402
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=7),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
-    "AUTH_HEADER_TYPES": ("Bearer",),
+    # Bearer/Token/JWT + StudentToken كما ترسل شاشة بروفايل الطالب
+    "AUTH_HEADER_TYPES": ("Bearer", "Token", "JWT", "StudentToken"),
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
     "TOKEN_OBTAIN_SERIALIZER": "accounts.serializers.CustomTokenObtainPairSerializer",
+    "TOKEN_REFRESH_SERIALIZER": "accounts.serializers.IdleAwareTokenRefreshSerializer",
 }
 
 # بيانات المدير الأولي من البيئة — ليست hardcoded

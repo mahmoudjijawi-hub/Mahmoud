@@ -1,6 +1,8 @@
 """حقول Serializer مساعدة لمطابقة أجسام الـ Collection (أرقام أو نصوص)."""
 from rest_framework import serializers
 
+from core.digits import normalize_digits
+
 
 class FlexibleCharField(serializers.CharField):
     """يقبل رقماً أو نصاً ويخزّنه كنص — كما في special_number داخل الـ Collection."""
@@ -12,8 +14,8 @@ class FlexibleCharField(serializers.CharField):
         if isinstance(data, bool):
             # لا نحول boolean هنا حتى لا يصبح "True"
             return super().to_internal_value(data)
-        if isinstance(data, (int, float)):
-            data = str(int(data)) if float(data).is_integer() else str(data)
+        # تطبيع الأرقام العربية (١،٢،٣) إلى لاتينية قبل أي تحقق
+        data = normalize_digits(data)
         return super().to_internal_value(data)
 
 
@@ -50,9 +52,9 @@ class FlexibleBooleanField(serializers.Field):
         if data is None or data == "":
             return False
         text = str(data).strip().lower()
-        if text in ("true", "1", "yes", "y"):
+        if text in ("true", "1", "yes", "y", "نعم", "صح", "مسدد", "دفع", "full"):
             return True
-        if text in ("false", "0", "no", "n"):
+        if text in ("false", "0", "no", "n", "لا", "غير مسدد"):
             return False
         raise serializers.ValidationError("قيمة غير صالحة للحقل المنطقي.")
 

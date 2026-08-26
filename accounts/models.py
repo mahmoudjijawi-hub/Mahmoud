@@ -50,6 +50,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     date_joined = models.DateTimeField(auto_now_add=True, verbose_name="تاريخ الانضمام")
     # مفتاح جلسة Django الأخيرة للمدير (جلسة واحدة)
     last_session_key = models.CharField(max_length=40, blank=True, default="")
+    # آخر نشاط حقيقي — تُغلق الجلسة بعد ساعة خمول فقط
+    last_activity = models.DateTimeField(null=True, blank=True, verbose_name="آخر نشاط")
     # إصدار JWT: زيادته تُبطل التوكنات القديمة لنفس المدير
     token_version = models.PositiveIntegerField(default=0)
 

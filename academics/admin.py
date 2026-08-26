@@ -30,6 +30,7 @@ class TeacherAdmin(admin.ModelAdmin):
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = ("first_name", "last_name", "special_number", "student_class", "is_active")
-    list_filter = ("is_active", "student_class")
+    list_display = ("first_name", "last_name", "special_number", "student_class", "is_payer")
+    list_filter = ("is_payer", "student_class")
     search_fields = ("special_number", "first_name", "last_name")
+    filter_horizontal = ("subjects",)

@@ -3,13 +3,25 @@ import uuid
 
 from django.db.models import Q
 from django.http import FileResponse, Http404
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from academics.models import Teacher, Student
 from academics.serializers import TeacherSerializer, StudentSerializer, StudentPagination
 from core.permissions import IsManagerOrReadOnlyAuthenticated, IsStudentOwner
+
+
+def _is_uuid(value):
+    """هل القيمة UUID صالح لمفتاح الطالب؟"""
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (TypeError, ValueError, AttributeError):
+        return False
 
 
 class TeacherViewSet(viewsets.ModelViewSet):
@@ -18,7 +30,17 @@ class TeacherViewSet(viewsets.ModelViewSet):
     serializer_class = TeacherSerializer
     permission_classes = (IsManagerOrReadOnlyAuthenticated,)
     queryset = Teacher.objects.select_related("user").all()
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    http_method_names = ["get", "post", "patch", "put", "delete", "head", "options"]
+
+    def perform_destroy(self, instance):
+        """حذف نهائي للأستاذ وحسابه حتى يتحرر الرقم المميز."""
+        from django.db import transaction
+
+        user = instance.user
+        with transaction.atomic():
+            instance.delete()
+            if user is not None and getattr(user, "pk", None):
+                type(user).objects.filter(pk=user.pk).delete()
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -26,9 +48,9 @@ class TeacherViewSet(viewsets.ModelViewSet):
         # الأستاذ يرى ملفه فقط
         if user.role == "teacher":
             return qs.filter(user=user)
-        # الطالب لا يرى قائمة الأساتذة كاملة — يُصفَّى عبر البرامج لاحقاً
+        # شاشة الطالب تعرض كل الأساتذة: الاسم والمادة والسيرة والهاتف
         if user.role == "student":
-            return qs.none()
+            return qs.order_by("first_name", "last_name")
         teacher_id = self.request.query_params.get("teacher_id")
         if teacher_id:
             qs = qs.filter(pk=teacher_id)
@@ -48,73 +70,427 @@ class TeacherViewSet(viewsets.ModelViewSet):
 class StudentViewSet(viewsets.ModelViewSet):
     """
     GET/POST /api/students/
-    PATCH/DELETE /api/students/{uuid}/
+    PATCH/DELETE /api/students/{uuid}/ أو /api/students/{special_number}/
     البحث بـ special_number أو name/search مع ترقيم الصفحات.
     """
 
     serializer_class = StudentSerializer
     permission_classes = (IsManagerOrReadOnlyAuthenticated, IsStudentOwner)
     pagination_class = StudentPagination
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    http_method_names = ["get", "post", "patch", "put", "delete", "head", "options"]
+
+    def paginate_queryset(self, queryset):
+        """
+        الواجهة تتوقع مصفوفة مباشرة: searchResponse.data.length و students.map
+        لا نُرقّم إلا إذا طُلب page أو page_size صراحة.
+        """
+        params = self.request.query_params
+        if params.get("page") or params.get("page_size"):
+            return super().paginate_queryset(queryset)
+        return None
+
+    def get_serializer(self, *args, **kwargs):
+        # PUT من زر التصفير يرسل حقولاً ناقصة؛ نعامل التحديث كجزئي دائماً
+        if self.action in ("update", "partial_update", "edit_post"):
+            kwargs["partial"] = True
+        return super().get_serializer(*args, **kwargs)
 
     def get_queryset(self):
-        # الشطب الناعم: نخفي غير النشطين من القوائم
-        qs = Student.objects.select_related("user").filter(is_active=True).order_by(
-            "first_name", "last_name"
+        # لا يوجد شطب ناعم: الحذف نهائي، فكل سجل موجود هو سجل فعّال
+        qs = Student.objects.select_related("user").prefetch_related("subjects").order_by(
+            "first_name", "last_name", "special_number"
         )
         user = self.request.user
-        # الطالب يرى ملفه فقط
+        # الطالب يرى ملفه فقط ولا يستخدم فلاتر البحث العامة
         if user.role == "student":
             return qs.filter(user=user)
 
         params = self.request.query_params
-        # أسماء معاملات شائعة من الفرونت/البرومبت
+        # كل الأسماء المحتملة التي قد يرسلها الفرونت
         special = (
             params.get("special_number")
             or params.get("specialNumber")
+            or params.get("special-number")
             or params.get("number")
+            or params.get("student_special_number")
         )
-        name = params.get("search") or params.get("name") or params.get("q")
+        term = (
+            params.get("search")
+            or params.get("name")
+            or params.get("q")
+            or params.get("query")
+            or params.get("keyword")
+        )
+
+        from core.digits import normalize_digits
 
         if special is not None and str(special).strip() != "":
-            special = str(special).strip()
-            # مطابقة تامة بعد إزالة الفراغات (رقم مثل 22)
+            special = normalize_digits(str(special).strip())
             qs = qs.filter(special_number=special)
 
-        if name is not None and str(name).strip() != "":
-            name = str(name).strip()
-            if name.isdigit():
-                # إن كان البحث رقمياً نبحث بالرقم المميز أيضاً (واجهة المدير غالباً ترسل search=22)
-                qs = qs.filter(
-                    Q(special_number__icontains=name)
-                    | Q(first_name__icontains=name)
-                    | Q(last_name__icontains=name)
-                )
+        if term is not None and str(term).strip() != "":
+            term = normalize_digits(str(term).strip())
+            if term.isdigit():
+                # الواجهة تستخدم ?search=الرقم المميز وتتوقع الطالب نفسه لا أرقاماً جزئية
+                exact = qs.filter(special_number=term)
+                if exact.exists():
+                    qs = exact
+                else:
+                    qs = qs.filter(
+                        Q(special_number__icontains=term)
+                        | Q(first_name__icontains=term)
+                        | Q(last_name__icontains=term)
+                    )
             else:
                 qs = qs.filter(
-                    Q(first_name__icontains=name) | Q(last_name__icontains=name)
+                    Q(first_name__icontains=term)
+                    | Q(last_name__icontains=term)
+                    | Q(special_number__icontains=term)
                 )
 
         return qs
 
+    def get_object(self):
+        """
+        يدعم الجلب بالـ UUID أو بالرقم المميز مباشرة:
+        GET /api/students/22/  → نفس نتيجة البحث بالرقم 22
+        """
+        lookup = self.kwargs.get(self.lookup_url_kwarg or self.lookup_field)
+        queryset = self.filter_queryset(self.get_queryset())
+
+        # إن لم يكن UUID نعتبره رقماً مميزاً
+        if lookup and not _is_uuid(lookup):
+            obj = get_object_or_404(queryset, special_number=str(lookup).strip())
+            self.check_object_permissions(self.request, obj)
+            return obj
+
+        return super().get_object()
+
+    @action(detail=False, methods=["get"], url_path="search")
+    def search(self, request):
+        """
+        مسار صريح للبحث: GET /api/students/search/?special_number=22
+        أو GET /api/students/search/?q=22
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post", "put", "patch"], url_path="pay")
+    def pay(self, request, pk=None):
+        """
+        زر الدفع من بطاقة الطالب:
+        POST /api/students/{id|special_number}/pay/
+        """
+        from payments.services import execute_payment, extract_raw_payload
+        from rest_framework.exceptions import ValidationError
+
+        student = self.get_object()
+        payload = extract_raw_payload(request)
+        payload["student"] = str(student.id)
+        payload["special_number"] = student.special_number
+        payload.setdefault("payment_type", "full")
+        try:
+            payment, data = execute_payment(payload, force_full=True)
+        except ValidationError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "تعذر إتمام الدفع من بطاقة الطالب.",
+                    "errors": exc.detail,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        student.refresh_from_db()
+        data["student_is_payer"] = student.is_payer
+        return Response(data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post", "put", "patch"], url_path="full-payment")
+    def full_payment(self, request, pk=None):
+        """مرادف: POST /api/students/{id}/full-payment/"""
+        return self.pay(request, pk=pk)
+
+    @action(detail=True, methods=["post", "put", "patch"], url_path="confirm-payment")
+    def confirm_payment(self, request, pk=None):
+        """
+        زر الدفعة الكاملة في الواجهة:
+        POST /api/students/{id}/confirm-payment/
+        الجسم فارغ — نعلّم الطالب مسدداً ونُكمل أي قسط مفتوح.
+        """
+        from rest_framework.exceptions import ValidationError
+
+        from payments.services import execute_payment
+
+        student = self.get_object()
+        payload = {
+            "student": str(student.id),
+            "special_number": student.special_number,
+            "payment_type": "full",
+        }
+        try:
+            _payment, data = execute_payment(payload, force_full=True)
+        except ValidationError:
+            # لا قسط مسجّل: يكفي تعليم is_payer كما تتوقع الواجهة
+            if not student.is_payer:
+                student.is_payer = True
+                student.save(update_fields=["is_payer"])
+            data = {
+                "success": True,
+                "message": "تم تأكيد الدفع",
+                "detail": "تم تأكيد الدفع",
+                "first_name": student.first_name,
+                "last_name": student.last_name,
+                "special_number": student.special_number,
+                "is_payer": True,
+                "student_is_payer": True,
+            }
+            student.refresh_from_db()
+            return Response(data, status=status.HTTP_200_OK)
+        student.refresh_from_db()
+        if not student.is_payer:
+            student.is_payer = True
+            student.save(update_fields=["is_payer"])
+        data["student_is_payer"] = True
+        data["first_name"] = student.first_name
+        data["last_name"] = student.last_name
+        return Response(data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post", "put", "patch"], url_path="reset-all-payments")
+    def reset_all_payments(self, request):
+        """تصفير دفعة كل الطلاب دفعة واحدة بدل N طلبات PUT."""
+        from payments.services import reset_student_payments
+
+        count = 0
+        for student in self.get_queryset():
+            reset_student_payments(student)
+            count += 1
+        return Response(
+            {
+                "success": True,
+                "message": "تم تصفير الدفع لجميع الطلاب",
+                "detail": "تم تصفير الدفع لجميع الطلاب",
+                "reset_students": count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post", "put", "patch"], url_path="edit-post")
+    def edit_post(self, request, pk=None):
+        """
+        شاشة تعديل المسار:
+        POST /api/students/edit-post/{id}/
+        أو POST /api/students/{id}/edit-post/
+        """
+        student = self.get_object()
+        serializer = self.get_serializer(student, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["get"], url_path="payments")
+    def payments(self, request, pk=None):
+        """
+        بيانات الطالب ومدفوعاته:
+        GET /api/students/{id|رقم مميز}/payments/
+        """
+        from payments.services import student_payment_summary
+
+        student = self.get_object()
+        return Response(student_payment_summary(student), status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post", "put", "patch"], url_path="reset-payment")
+    def reset_payment(self, request, pk=None):
+        """زر تصفير الدفع من بطاقة الطالب."""
+        from payments.services import reset_student_payments
+
+        student = self.get_object()
+        return Response(reset_student_payments(student), status=status.HTTP_200_OK)
+
     def perform_destroy(self, instance):
         """
-        شطب ناعم مع تحرير الرقم المميز واسم المستخدم،
-        حتى يمكن إضافة طالب جديد بنفس الرقم (مثل 22) لاحقاً مع بقاء السجلات التاريخية.
+        حذف نهائي من قاعدة البيانات: الطالب + حساب المستخدم + السجلات التابعة.
+        الرقم المميز واسم المستخدم يتحرران فوراً لإعادة الاستخدام.
         """
-        # قيمة فريدة بطول 10 لتفريغ قيد unique على special_number
-        released = uuid.uuid4().hex[:10]
-        instance.is_active = False
-        instance.special_number = released
-        instance.save(update_fields=["is_active", "special_number"])
+        from django.db import transaction
+
         user = instance.user
-        user.is_active = False
-        user.special_number = released
-        # تحرير username أيضاً لأن الإنشاء يستخدم s{special_number}
-        user.username = f"d{released}"[:25]
-        user.save(update_fields=["is_active", "special_number", "username"])
+        with transaction.atomic():
+            instance.delete()
+            if user is not None and getattr(user, "pk", None):
+                # حذف الحساب حتى لا يبقى username/special_number محجوزاً
+                type(user).objects.filter(pk=user.pk).delete()
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _find_student_for_portal(lookup):
+    """قبول UUID الطالب أو UUID الحساب أو الرقم المميز."""
+    from core.digits import normalize_digits
+
+    text = normalize_digits(str(lookup or "").strip())
+    if not text:
+        return None
+    if _is_uuid(text):
+        student = Student.objects.filter(pk=text).select_related("user").first()
+        if student is not None:
+            return student
+        return Student.objects.filter(user_id=text).select_related("user").first()
+    return Student.objects.filter(special_number=text).select_related("user").first()
+
+
+class StudentPortalView(APIView):
+    """
+    رابط بروفايل الطالب كما في الفرونت:
+    GET /api/student-detail/{studentId}/  مع Authorization: StudentToken <jwt>
+    POST /api/student-detail/  بالرقم المميز لتسجيل الدخول إلى البروفايل.
+    """
+
+    http_method_names = ["get", "post", "head", "options"]
+    throttle_scope = "special_number"
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def get_throttles(self):
+        if self.request.method != "POST":
+            return []
+        from core.throttles import LoginRateThrottle, SpecialNumberRateThrottle
+
+        return [LoginRateThrottle(), SpecialNumberRateThrottle()]
+
+    def post(self, request, pk=None):
+        """دخول الطالب بالرقم المميز — نفس استجابة /api/token/ مع studentId/studentToken."""
+        from accounts.serializers import CustomTokenObtainPairSerializer
+
+        data = {}
+        if hasattr(request.data, "items"):
+            data.update({k: v for k, v in request.data.items()})
+        elif isinstance(request.data, dict):
+            data.update(request.data)
+        if pk and not data.get("special_number") and not data.get("specialNumber"):
+            data["special_number"] = pk
+        serializer = CustomTokenObtainPairSerializer(data=data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+    def get(self, request, pk=None):
+        """جلب first_name و last_name و is_payer لشاشة البروفايل."""
+        if pk in (None, "", "me", "profile"):
+            student = getattr(request.user, "student_profile", None)
+            if student is None:
+                return Response(
+                    {"detail": "هذا الحساب ليس طالباً."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        else:
+            student = _find_student_for_portal(pk)
+            if student is None:
+                return Response(
+                    {"detail": "لم يتم العثور على طالب بهذا المعرّف."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if request.user.role == "student":
+                own = getattr(request.user, "student_profile", None)
+                if own is None or own.pk != student.pk:
+                    return Response(
+                        {"detail": "لم يتم العثور على طالب بهذا المعرّف."},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+            elif request.user.role != "manager":
+                return Response({"detail": "غير مصرح."}, status=status.HTTP_403_FORBIDDEN)
+
+        data = StudentSerializer(student).data
+        data["success"] = True
+        data["isPayer"] = data.get("is_payer")
+        data["firstName"] = data.get("first_name")
+        data["lastName"] = data.get("last_name")
+        data["studentId"] = str(student.id)
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class StudentLoginView(APIView):
+    """
+    شاشة إدخال الرقم المميز:
+    POST /api/student-login/  { "special_number": "..." }
+    نجاح: { status: "success", student_id, access }
+    طالب غير موجود: 404 { error: "..." }
+    """
+
+    permission_classes = (AllowAny,)
+    http_method_names = ["post", "head", "options"]
+    throttle_scope = "special_number"
+
+    def get_throttles(self):
+        from core.throttles import LoginRateThrottle, SpecialNumberRateThrottle
+
+        return [LoginRateThrottle(), SpecialNumberRateThrottle()]
+
+    def post(self, request, *args, **kwargs):
+        from accounts.serializers import CustomTokenObtainPairSerializer, LoginError, _pick
+        from core.digits import normalize_digits
+
+        raw = {}
+        if hasattr(request.data, "items"):
+            raw.update({k: v for k, v in request.data.items()})
+        elif isinstance(request.data, dict):
+            raw.update(request.data)
+        special = str(
+            _pick(raw, "special_number", "specialNumber", "number", "memberID", "memberId")
+            or ""
+        ).strip()
+        special = normalize_digits(special)
+        if not special:
+            return Response(
+                {
+                    "status": "error",
+                    "error": "يرجى إدخال الرقم المميز أولاً",
+                    "detail": "يرجى إدخال الرقم المميز أولاً",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = CustomTokenObtainPairSerializer(
+            data={"special_number": special},
+            context={"request": request},
+        )
+        try:
+            serializer.is_valid(raise_exception=True)
+        except LoginError:
+            return Response(
+                {
+                    "status": "error",
+                    "error": "لا يوجد طالب بهذا الرقم المميز.",
+                    "detail": "لا يوجد طالب بهذا الرقم المميز.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        data = dict(serializer.validated_data)
+        student_id = data.get("student_id") or data.get("studentId")
+        access = data.get("access") or data.get("studentToken") or data.get("token")
+        if data.get("role") != "student" or not student_id or not access:
+            return Response(
+                {
+                    "status": "error",
+                    "error": "لا يوجد طالب بهذا الرقم المميز.",
+                    "detail": "لا يوجد طالب بهذا الرقم المميز.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        data["status"] = "success"
+        data["student_id"] = str(student_id)
+        data["studentId"] = str(student_id)
+        data["access"] = access
+        data["studentToken"] = access
+        data["token"] = access
+        return Response(data, status=status.HTTP_200_OK)

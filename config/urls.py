@@ -8,7 +8,7 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from accounts.views import CustomTokenObtainPairView, ManagerViewSet
-from academics.views import TeacherViewSet, StudentViewSet
+from academics.views import TeacherViewSet, StudentViewSet, StudentPortalView, StudentLoginView
 from grades.views import ExamViewSet
 from schedule.views import TimeTableViewSet, ProgramViewSet
 from payments.views import PaymentViewSet
@@ -30,6 +30,9 @@ router.register(r"time_table", TimeTableViewSet, basename="time_table")
 router.register(r"programs", ProgramViewSet, basename="programs")
 # مورد الدفعات: /api/payments/
 router.register(r"payments", PaymentViewSet, basename="payments")
+# مرادفات شائعة قد يستدعيها الفرونت لزر الدفع
+router.register(r"payment", PaymentViewSet, basename="payment")
+router.register(r"pay", PaymentViewSet, basename="pay")
 # مورد الحضور (غير موجود بالـ Collection؛ أُضيف بنفس نمط REST دون كسر المسارات الأخرى)
 router.register(r"attendance", AttendanceViewSet, basename="attendance")
 
@@ -40,6 +43,24 @@ urlpatterns = [
     path("api/token/", CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
     # POST /api/token/refresh/ — مطابق لاسم الطلب refresh
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    # شاشة الرقم المميز: POST /api/student-login/
+    path("api/student-login/", StudentLoginView.as_view(), name="student-login"),
+    path("api/student_login/", StudentLoginView.as_view(), name="student-login-underscore"),
+    # شاشة بروفايل الطالب: GET /api/student-detail/{id}/ مع StudentToken
+    path("api/student-detail/", StudentPortalView.as_view(), name="student-detail"),
+    path("api/student-detail/<str:pk>/", StudentPortalView.as_view(), name="student-detail-pk"),
+    path("api/student_detail/", StudentPortalView.as_view(), name="student-detail-underscore"),
+    path(
+        "api/student_detail/<str:pk>/",
+        StudentPortalView.as_view(),
+        name="student-detail-underscore-pk",
+    ),
+    # شاشة تعديل المسار تستخدم هذا الشكل حرفياً
+    path(
+        "api/students/edit-post/<uuid:pk>/",
+        StudentViewSet.as_view({"post": "edit_post", "put": "edit_post", "patch": "edit_post"}),
+        name="student-edit-post",
+    ),
     # بقية موارد الـ API تحت /api/
     path("api/", include(router.urls)),
 ]
