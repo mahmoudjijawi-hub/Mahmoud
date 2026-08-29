@@ -127,8 +127,8 @@ class ProgramSerializer(serializers.ModelSerializer):
     section = serializers.CharField(max_length=40)
     day = serializers.CharField(max_length=20)
     time_slot = serializers.CharField(max_length=20)
-    room = serializers.CharField(max_length=40)
-    subject_name = serializers.CharField(max_length=30)
+    room = serializers.CharField(max_length=40, allow_blank=True, required=False)
+    subject_name = serializers.CharField(max_length=30, allow_blank=True)
     teacher_name = serializers.PrimaryKeyRelatedField(
         queryset=Teacher.objects.all(),
         allow_null=True,
@@ -150,12 +150,52 @@ class ProgramSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id",)
 
+    def to_internal_value(self, data):
+        if hasattr(data, "items"):
+            data = {k: v for k, v in data.items()}
+        else:
+            data = dict(data or {})
+
+        if data.get("certificate_type") not in (None, ""):
+            data["certificate_type"] = _normalize_certificate(data.get("certificate_type"))
+        if data.get("day") not in (None, ""):
+            data["day"] = _arabic_weekday(data.get("day"))
+        if data.get("time_slot") not in (None, ""):
+            data["time_slot"] = _normalize_time_slot(data.get("time_slot"))
+
+        teacher = _first(data, "teacher_name", "teacher", "teacher_id", "teacherId")
+        if teacher in (None, "", "null"):
+            data["teacher_name"] = None
+        elif isinstance(teacher, dict):
+            data["teacher_name"] = teacher.get("id") or teacher.get("pk")
+        else:
+            data["teacher_name"] = teacher
+
+        if data.get("room") is None:
+            data["room"] = ""
+        return super().to_internal_value(data)
+
+    def create(self, validated_data):
+        """شاشة المدير: نفس اليوم/الساعة/الشعبة تُحدَّث ولا تُكرَّر."""
+        instance = _existing_program_slot(validated_data)
+        if instance is not None:
+            return self.update(instance, validated_data)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        instance = super().update(instance, validated_data)
+        _collapse_duplicate_slots(instance)
+        return instance
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["day"] = _arabic_weekday(data.get("day"))
         data["time_slot"] = _normalize_time_slot(data.get("time_slot"))
         data["hour"] = data["time_slot"]
         data["subject"] = data.get("subject_name")
+        teacher_id = data.get("teacher_name")
+        data["teacher_name"] = str(teacher_id) if teacher_id not in (None, "") else None
+        data["teacher"] = data["teacher_name"]
         return data
 
 
@@ -192,3 +232,64 @@ def _normalize_time_slot(value):
     if not match:
         return text
     return f"{int(match.group(1)):02d}:{match.group(2)}"
+
+
+def _normalize_certificate(value):
+    text = str(value or "").strip()
+    lowered = text.lower()
+    if "بكالوريا" in text or lowered in ("baccalaureate", "bac"):
+        return "baccalaureate"
+    if "حادي عشر" in text or lowered in ("eleventh", "11"):
+        return "eleventh"
+    if lowered in ("transitional", "انتقالي", "تاسع", "عاشر"):
+        return "transitional"
+    return text
+
+
+def _slot_lookup(data):
+    return {
+        "certificate_type": _normalize_certificate(data.get("certificate_type")),
+        "grade": str(data.get("grade") or "").strip(),
+        "section": str(data.get("section") or "").strip(),
+        "day": _arabic_weekday(data.get("day")),
+        "time_slot": _normalize_time_slot(data.get("time_slot")),
+    }
+
+
+def _slot_matches(program, lookup):
+    return (
+        _normalize_certificate(program.certificate_type) == lookup["certificate_type"]
+        and (program.grade or "").strip() == lookup["grade"]
+        and (program.section or "").strip() == lookup["section"]
+        and _arabic_weekday(program.day) == lookup["day"]
+        and _normalize_time_slot(program.time_slot) == lookup["time_slot"]
+    )
+
+
+def _existing_program_slot(validated_data):
+    lookup = _slot_lookup(validated_data)
+    if not lookup["day"] or not lookup["time_slot"]:
+        return None
+    for program in Program.objects.order_by("id"):
+        if _slot_matches(program, lookup):
+            return program
+    return None
+
+
+def _collapse_duplicate_slots(instance):
+    lookup = _slot_lookup(
+        {
+            "certificate_type": instance.certificate_type,
+            "grade": instance.grade,
+            "section": instance.section,
+            "day": instance.day,
+            "time_slot": instance.time_slot,
+        }
+    )
+    extras = [
+        program
+        for program in Program.objects.exclude(pk=instance.pk)
+        if _slot_matches(program, lookup)
+    ]
+    for program in extras:
+        program.delete()

@@ -3,6 +3,7 @@ import uuid
 
 from django.db.models import Q
 from rest_framework import viewsets
+from rest_framework.response import Response
 
 from core.permissions import IsManagerOrReadOnlyAuthenticated
 from schedule.models import TimeTable, Program
@@ -85,6 +86,28 @@ def _filter_programs_for_student(qs, student):
     return filtered if filtered.exists() else qs
 
 
+def _dedupe_program_slots(qs):
+    """حصة واحدة لكل يوم/ساعة/شعبة — الأحدث يبقى حتى يطابق الجدول بعد التعديل."""
+    from schedule.serializers import _normalize_time_slot, _arabic_weekday, _normalize_certificate
+
+    seen = {}
+    ordered = []
+    for program in qs.order_by("id"):
+        key = (
+            _normalize_certificate(program.certificate_type),
+            (program.grade or "").strip(),
+            (program.section or "").strip(),
+            _arabic_weekday(program.day),
+            _normalize_time_slot(program.time_slot),
+        )
+        if key in seen:
+            seen[key] = program
+            continue
+        seen[key] = program
+        ordered.append(key)
+    return [seen[key] for key in ordered]
+
+
 class TimeTableViewSet(viewsets.ModelViewSet):
     serializer_class = TimeTableSerializer
     permission_classes = (IsManagerOrReadOnlyAuthenticated,)
@@ -106,13 +129,24 @@ class TimeTableViewSet(viewsets.ModelViewSet):
 class ProgramViewSet(viewsets.ModelViewSet):
     serializer_class = ProgramSerializer
     permission_classes = (IsManagerOrReadOnlyAuthenticated,)
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    http_method_names = ["get", "post", "patch", "put", "delete", "head", "options"]
 
     def paginate_queryset(self, queryset):
         params = self.request.query_params
         if params.get("page") or params.get("page_size"):
             return super().paginate_queryset(queryset)
         return None
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        if getattr(request.user, "role", None) == "manager":
+            queryset = _dedupe_program_slots(queryset)
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(list(queryset), many=True)
+        return Response(serializer.data)
 
     def get_queryset(self):
         qs = Program.objects.select_related("teacher_name").all()

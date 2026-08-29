@@ -1262,6 +1262,56 @@ class PostmanAPITests(TestCase):
         self.assertEqual(listing.status_code, 200)
         self.assertTrue(Program.objects.filter(pk=create.data["id"]).exists())
 
+    def test_admin_program_editor_patch_delete_and_upsert(self):
+        """شاشة وضع البرنامج: PATCH وDELETE وإعادة POST لنفس حصة الأحد تُثبَّت."""
+        teacher = self._make_teacher("9011")
+        payload = {
+            "certificate_type": "baccalaureate",
+            "grade": "علمي",
+            "section": "الشعبة الأولى",
+            "day": "الأحد",
+            "time_slot": "08:00",
+            "room": "",
+            "subject_name": "فيزياء",
+            "teacher_name": str(teacher.id),
+        }
+        first = self.client.post("/api/programs/", payload, format="json")
+        self.assertIn(first.status_code, (200, 201), first.data)
+        program_id = first.data["id"]
+
+        again = self.client.post(
+            "/api/programs/",
+            {**payload, "time_slot": "8:00", "subject_name": "كيمياء", "room": ""},
+            format="json",
+        )
+        self.assertIn(again.status_code, (200, 201), again.data)
+        self.assertEqual(str(again.data["id"]), str(program_id))
+        self.assertEqual(Program.objects.filter(day="الأحد", section="الشعبة الأولى").count(), 1)
+
+        patch = self.client.patch(
+            f"/api/programs/{program_id}/",
+            {**payload, "subject_name": "رياضيات", "teacher_name": None, "room": ""},
+            format="json",
+        )
+        self.assertEqual(patch.status_code, 200, patch.data)
+        self.assertEqual(patch.data["subject_name"], "رياضيات")
+        self.assertEqual(patch.data["time_slot"], "08:00")
+        self.assertEqual(patch.data["day"], "الأحد")
+
+        listing = self.client.get("/api/programs/")
+        self.assertIsInstance(listing.data, list, listing.data)
+        sunday = [
+            row
+            for row in listing.data
+            if row["day"] == "الأحد" and row["time_slot"] == "08:00"
+        ]
+        self.assertEqual(len(sunday), 1)
+        self.assertEqual(sunday[0]["subject_name"], "رياضيات")
+
+        deleted = self.client.delete(f"/api/programs/{program_id}/")
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(Program.objects.filter(pk=program_id).exists())
+
     def test_student_schedule_lists_programs_by_student_id(self):
         """شاشة برنامج الطالب: GET /api/programs/?student_id= مع StudentToken."""
         teacher = self._make_teacher("8891")
