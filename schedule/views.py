@@ -7,7 +7,11 @@ from rest_framework.response import Response
 
 from core.permissions import IsManagerOrReadOnlyAuthenticated
 from schedule.models import TimeTable, Program
-from schedule.serializers import TimeTableSerializer, ProgramSerializer
+from schedule.serializers import (
+    TimeTableSerializer,
+    ProgramSerializer,
+    programs_in_same_slot,
+)
 
 
 def _is_uuid(value):
@@ -180,3 +184,32 @@ class ProgramViewSet(viewsets.ModelViewSet):
         if teacher_name:
             qs = qs.filter(teacher_name_id=teacher_name)
         return qs
+
+    def perform_destroy(self, instance):
+        """حذف الخلية كلها: 8 و 8:00 و 08:00 لنفس الأحد تُزال معاً."""
+        siblings = programs_in_same_slot(instance)
+        if not siblings:
+            instance.delete()
+            return
+        for program in siblings:
+            program.delete()
+
+    def _destroy_if_subject_cleared(self, request):
+        data = getattr(request, "data", {}) or {}
+        subject = data.get("subject_name") if hasattr(data, "get") else None
+        if subject is None or str(subject).strip() != "":
+            return None
+        self.perform_destroy(self.get_object())
+        return Response(status=204)
+
+    def update(self, request, *args, **kwargs):
+        cleared = self._destroy_if_subject_cleared(request)
+        if cleared is not None:
+            return cleared
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        cleared = self._destroy_if_subject_cleared(request)
+        if cleared is not None:
+            return cleared
+        return super().partial_update(request, *args, **kwargs)

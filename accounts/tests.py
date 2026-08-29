@@ -1312,6 +1312,47 @@ class PostmanAPITests(TestCase):
         self.assertEqual(deleted.status_code, 204)
         self.assertFalse(Program.objects.filter(pk=program_id).exists())
 
+    def test_sunday_8am_slot_clears_all_hour_spellings(self):
+        """حصة الأحد الساعة 8 تُحذف حتى لو حُفظت 8 و 8:00 و 08:00 معاً."""
+        teacher = self._make_teacher("9012")
+        shared = {
+            "certificate_type": "baccalaureate",
+            "grade": "علمي",
+            "section": "الشعبة الأولى",
+            "day": "الأحد",
+            "subject_name": "فيزياء",
+            "teacher_name": teacher,
+            "room": "",
+        }
+        first = Program.objects.create(**shared, time_slot="8")
+        Program.objects.create(**shared, time_slot="8:00")
+        Program.objects.create(**shared, time_slot="08:00")
+        Program.objects.create(**{**shared, "day": "الاحد", "time_slot": "08:00:00"})
+
+        listing = self.client.get("/api/programs/")
+        sunday_eight = [
+            row
+            for row in listing.data
+            if row["day"] == "الأحد" and row["time_slot"] == "08:00"
+        ]
+        self.assertEqual(len(sunday_eight), 1, listing.data)
+        slot_id = sunday_eight[0]["id"]
+
+        patch = self.client.patch(
+            f"/api/programs/{slot_id}/",
+            {"subject_name": "رياضيات", "room": ""},
+            format="json",
+        )
+        self.assertEqual(patch.status_code, 200, patch.data)
+        self.assertEqual(patch.data["subject_name"], "رياضيات")
+        self.assertEqual(Program.objects.filter(subject_name="فيزياء").count(), 0)
+
+        deleted = self.client.delete(f"/api/programs/{slot_id}/")
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(
+            Program.objects.filter(section="الشعبة الأولى", subject_name="رياضيات").exists()
+        )
+
     def test_student_schedule_lists_programs_by_student_id(self):
         """شاشة برنامج الطالب: GET /api/programs/?student_id= مع StudentToken."""
         teacher = self._make_teacher("8891")
