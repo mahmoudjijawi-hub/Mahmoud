@@ -115,10 +115,32 @@ class TimeTableSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["day"] = data.get("Day")
+        data["date"] = data.get("Day")
         data["hour"] = data.get("Hour")
         data["subject"] = data.get("Subject")
+        data["subject_name"] = data.get("Subject")
         data["teacher"] = data.get("Teacher")
+        status = _timetable_attendance_status(instance, self.context.get("request"))
+        data["Status"] = status
+        data["status"] = status
+        data["attendance_status"] = status
+        data["is_present"] = status == "حضور" if status else None
         return data
+
+
+def _timetable_attendance_status(instance, request):
+    """حالة حضور الطالب في ذلك اليوم — شاشة الطالب تقرأ Status من time_table."""
+    from attendance.models import Attendance
+
+    student = None
+    if request is not None and getattr(request.user, "role", None) == "student":
+        student = getattr(request.user, "student_profile", None)
+    if student is None:
+        student = instance.student.first()
+    if student is None:
+        return None
+    record = Attendance.objects.filter(student=student, Date=instance.Day).first()
+    return record.Status if record is not None else None
 
 
 class ProgramSerializer(serializers.ModelSerializer):
