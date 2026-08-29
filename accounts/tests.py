@@ -1354,9 +1354,9 @@ class PostmanAPITests(TestCase):
         )
 
     def test_student_schedule_lists_programs_by_student_id(self):
-        """شاشة برنامج الطالب: GET /api/programs/?student_id= مع StudentToken."""
+        """شاشة برنامج الطالب: GET /api/programs/?student_id= حصص شعبته فقط."""
         teacher = self._make_teacher("8891")
-        self.client.post(
+        own = self.client.post(
             "/api/programs/",
             {
                 "certificate_type": "baccalaureate",
@@ -1370,13 +1370,51 @@ class PostmanAPITests(TestCase):
             },
             format="json",
         )
+        self.assertIn(own.status_code, (200, 201), own.data)
+        other = self.client.post(
+            "/api/programs/",
+            {
+                "certificate_type": "baccalaureate",
+                "grade": "علمي",
+                "section": "الشعبة الثانية",
+                "day": "الأحد",
+                "time_slot": "9:00",
+                "room": "القاعة 202",
+                "subject_name": "الكيمياء",
+                "teacher_name": str(teacher.id),
+            },
+            format="json",
+        )
+        self.assertIn(other.status_code, (200, 201), other.data)
+        literary = self.client.post(
+            "/api/programs/",
+            {
+                "certificate_type": "baccalaureate",
+                "grade": "أدبي",
+                "section": "الشعبة الأولى",
+                "day": "الاثنين",
+                "time_slot": "10:00",
+                "room": "القاعة 303",
+                "subject_name": "فلسفة",
+            },
+            format="json",
+        )
+        self.assertIn(literary.status_code, (200, 201), literary.data)
+
         student = self._make_student("8892")
+        student.class1 = "بكالوريا علمي"
+        student.class3 = "الشعبة الأولى"
+        student.save(update_fields=["class1", "class3"])
         login = APIClient().post(
             "/api/student-login/",
             {"special_number": student.special_number},
             format="json",
         )
         self.assertEqual(login.status_code, 200, login.data)
+        self.assertEqual(login.data["class1"], "بكالوريا علمي")
+        self.assertEqual(login.data["class3"], "الشعبة الأولى")
+        self.assertEqual(login.data["studentGrade"], "بكالوريا علمي")
+        self.assertEqual(login.data["studentSection"], "الشعبة الأولى")
         token = login.data["access"]
         student_id = login.data["student_id"]
         client = APIClient()
@@ -1387,11 +1425,15 @@ class PostmanAPITests(TestCase):
         self.assertEqual(listing.status_code, 200, listing.data)
         rows = listing.data["results"] if isinstance(listing.data, dict) else listing.data
         self.assertIsInstance(rows, list, listing.data)
-        self.assertGreaterEqual(len(rows), 1)
-        lesson = next((row for row in rows if row.get("subject_name") == "الفيزياء"), rows[0])
+        subjects = {row.get("subject_name") for row in rows}
+        self.assertEqual(subjects, {"الفيزياء"})
+        lesson = rows[0]
         self.assertEqual(lesson["day"], "الأحد")
         self.assertTrue(str(lesson["time_slot"]).startswith("08:00"))
-        self.assertEqual(lesson["subject_name"], "الفيزياء")
+        self.assertEqual(lesson["class1"], "بكالوريا علمي")
+        self.assertEqual(lesson["class3"], "الشعبة الأولى")
+        self.assertEqual(lesson["section"], "الشعبة الأولى")
+        self.assertEqual(lesson["teacher_name"], "أستاذ تجربة")
 
         create_attempt = client.post(
             "/api/programs/",
@@ -1508,6 +1550,10 @@ class PostmanAPITests(TestCase):
         self.assertEqual(str(login.data["student_id"]), str(student.id))
         self.assertTrue(login.data.get("access"))
         self.assertEqual(login.data["access"], login.data["studentToken"])
+        self.assertIn("class1", login.data)
+        self.assertIn("class3", login.data)
+        self.assertIn("studentGrade", login.data)
+        self.assertIn("studentSection", login.data)
 
         missing = APIClient().post(
             "/api/student-login/",

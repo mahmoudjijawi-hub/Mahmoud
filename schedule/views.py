@@ -1,16 +1,18 @@
 """واجهات /api/time_table/ و /api/programs/."""
+import re
 import uuid
 
-from django.db.models import Q
 from rest_framework import viewsets
 from rest_framework.response import Response
 
+from core.digits import normalize_digits
 from core.permissions import IsManagerOrReadOnlyAuthenticated
 from schedule.models import TimeTable, Program
 from schedule.serializers import (
     TimeTableSerializer,
     ProgramSerializer,
     programs_in_same_slot,
+    _normalize_certificate,
 )
 
 
@@ -38,56 +40,92 @@ def _resolve_student_ref(value):
     return Student.objects.filter(special_number=text).select_related("stage", "section").first()
 
 
-def _student_program_tokens(student):
-    """كلمات مسار الطالب لمطابقتها مع حقول البرنامج."""
-    from academics.subjects import student_subject_names
+def _fold_ar(value):
+    """توحيد الهمزات والمسافات والأرقام لمقارنة الشعبة."""
+    text = normalize_digits(str(value or "")).strip()
+    text = re.sub(r"\s+", " ", text)
+    for alef in "أإآٱ":
+        text = text.replace(alef, "ا")
+    return text.replace("ى", "ي").replace("ة", "ه").lower()
 
-    tokens = list(student_subject_names(student))
-    for raw in (student.class1, student.class2, student.class3, student.student_class):
-        if not raw:
-            continue
-        tokens.extend(
-            part.strip()
-            for part in str(raw).replace("،", ",").split(",")
-            if part.strip()
-        )
+
+def _student_section_label(student):
+    from academics.serializers import student_path_labels
+
+    return student_path_labels(student)["class3"]
+
+
+def _sections_equal(left, right):
+    folded_left = _fold_ar(left)
+    folded_right = _fold_ar(right)
+    if not folded_left or not folded_right:
+        return False
+    return (
+        folded_left == folded_right
+        or folded_left in folded_right
+        or folded_right in folded_left
+    )
+
+
+def _student_path_blob(student):
+    from academics.serializers import student_path_labels
+
+    path = student_path_labels(student)
+    parts = [path["class1"], path["class2"], getattr(student, "student_class", "")]
     if getattr(student, "stage", None) is not None:
-        tokens.append(student.stage.name)
-    if getattr(student, "section", None) is not None:
-        tokens.append(student.section.name)
-    seen = set()
-    unique = []
-    for token in tokens:
-        key = token.strip().lower()
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        unique.append(token.strip())
-    return unique
+        parts.append(student.stage.name)
+    return _fold_ar(" ".join(str(part) for part in parts if part))
+
+
+_CERT_MARKERS = {
+    "baccalaureate": ("بكالوريا", "baccalaureate", "bac"),
+    "eleventh": ("حادي عشر", "الحادي عشر", "eleventh"),
+    "transitional": ("تاسع", "عاشر", "انتقالي", "transitional"),
+}
+
+
+def _path_compatible(program, student):
+    """نفس الشعبة لا تكفي إن كان علمي/أدبي أو بكالوريا/حادي عشر مختلفين."""
+    blob = _student_path_blob(student)
+    if not blob.strip():
+        return True
+
+    grade = _fold_ar(program.grade)
+    has_science = "علمي" in blob
+    has_literary = "ادبي" in blob
+    if grade == "علمي" and has_literary and not has_science:
+        return False
+    if grade in ("ادبي", "أدبي") and has_science and not has_literary:
+        return False
+
+    cert = _normalize_certificate(program.certificate_type)
+    markers = _CERT_MARKERS.get(cert, ())
+    student_has_cert = any(
+        _fold_ar(marker) in blob
+        for marks in _CERT_MARKERS.values()
+        for marker in marks
+    )
+    if student_has_cert and markers:
+        if not any(_fold_ar(marker) in blob for marker in markers):
+            return False
+    return True
 
 
 def _filter_programs_for_student(qs, student):
     """
     شاشة برنامج الطالب: GET /api/programs/?student_id=
-    نطابق المادة/الصف/الشعبة، وإن لم يطابق شيء نعيد الجدول كاملاً حتى لا تبقى الصفحة فارغة.
+    نُظهر حصص شعبة الطالب فقط — بدون إعادة الجدول كاملاً إن لم يوجد تطابق.
     """
-    tokens = _student_program_tokens(student)
-    if not tokens:
-        return qs
-    query = Q()
-    for token in tokens:
-        query |= (
-            Q(subject_name__iexact=token)
-            | Q(subject_name__icontains=token)
-            | Q(grade__iexact=token)
-            | Q(grade__icontains=token)
-            | Q(section__iexact=token)
-            | Q(section__icontains=token)
-            | Q(certificate_type__iexact=token)
-            | Q(certificate_type__icontains=token)
-        )
-    filtered = qs.filter(query).distinct()
-    return filtered if filtered.exists() else qs
+    section = _student_section_label(student)
+    if not section:
+        return qs.none()
+
+    matched_ids = [
+        program.pk
+        for program in qs
+        if _sections_equal(program.section, section) and _path_compatible(program, student)
+    ]
+    return qs.filter(pk__in=matched_ids)
 
 
 def _dedupe_program_slots(qs):
@@ -152,6 +190,25 @@ class ProgramViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(list(queryset), many=True)
         return Response(serializer.data)
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["student"] = self._target_student()
+        return context
+
+    def _target_student(self):
+        user = self.request.user
+        params = self.request.query_params
+        if getattr(user, "role", None) == "student":
+            return getattr(user, "student_profile", None)
+        student_ref = (
+            params.get("student_id")
+            or params.get("studentId")
+            or params.get("student")
+        )
+        if student_ref:
+            return _resolve_student_ref(student_ref)
+        return None
+
     def get_queryset(self):
         qs = Program.objects.select_related("teacher_name").all()
         user = self.request.user
@@ -159,20 +216,9 @@ class ProgramViewSet(viewsets.ModelViewSet):
         if user.role == "teacher":
             qs = qs.filter(teacher_name__user=user)
 
-        student_ref = (
-            params.get("student_id")
-            or params.get("studentId")
-            or params.get("student")
-        )
-        target_student = None
-        if user.role == "student":
-            target_student = getattr(user, "student_profile", None)
-            if target_student is None:
-                return qs.none()
-            # الطالب يرى جدوله فقط حتى لو أرسل معرّف طالب آخر
-        elif student_ref:
-            target_student = _resolve_student_ref(student_ref)
-
+        target_student = self._target_student()
+        if user.role == "student" and target_student is None:
+            return qs.none()
         if target_student is not None:
             qs = _filter_programs_for_student(qs, target_student)
 
