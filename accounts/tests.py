@@ -1277,23 +1277,29 @@ class PostmanAPITests(TestCase):
         self.assertEqual(login.status_code, 200, login.data)
         client = APIClient()
         listing = client.get(
-            "/api/attendance/",
+            f"/api/attendance/?student_id={student.id}",
             HTTP_AUTHORIZATION=f"StudentToken {login.data['access']}",
         )
         self.assertEqual(listing.status_code, 200, listing.data)
-        rows = listing.data["results"] if isinstance(listing.data, dict) else listing.data
-        self.assertIsInstance(rows, list, listing.data)
+        self.assertIsInstance(listing.data, list, listing.data)
+        rows = listing.data
         by_date = {row["Date"]: row for row in rows}
         self.assertIn("2026-08-20", by_date)
         self.assertIn("2026-08-21", by_date)
         self.assertEqual(by_date["2026-08-20"]["Status"], Attendance.STATUS_PRESENT)
         self.assertEqual(by_date["2026-08-20"]["status"], "حضور")
+        self.assertEqual(by_date["2026-08-20"]["attendance_status"], "حضور")
         self.assertTrue(by_date["2026-08-20"]["is_present"])
         self.assertEqual(by_date["2026-08-20"]["subject"], "رياضيات")
+        self.assertEqual(by_date["2026-08-20"]["subject_name"], "رياضيات")
+        self.assertEqual(by_date["2026-08-20"]["Subject"], "رياضيات")
         self.assertEqual(by_date["2026-08-20"]["date"], "2026-08-20")
+        self.assertEqual(by_date["2026-08-20"]["day"], "2026-08-20")
+        self.assertEqual(by_date["2026-08-20"]["session_date"], "2026-08-20")
         self.assertEqual(by_date["2026-08-21"]["Status"], Attendance.STATUS_ABSENT)
         self.assertEqual(by_date["2026-08-21"]["status"], "غياب")
         self.assertFalse(by_date["2026-08-21"]["is_present"])
+        self.assertGreaterEqual(rows[0]["Date"], rows[-1]["Date"])
 
         table = client.get(
             "/api/time_table/",
@@ -1305,6 +1311,46 @@ class PostmanAPITests(TestCase):
         self.assertEqual(math["Status"], "حضور")
         self.assertEqual(math["status"], "حضور")
         self.assertTrue(math["is_present"])
+
+    def test_student_attendance_syncs_old_time_table_rows(self):
+        """حصة time_table بلا سجل حضور تظهر بعد GET /api/attendance/?student_id=."""
+        from datetime import time
+
+        from attendance.models import Attendance
+        from schedule.models import TimeTable
+
+        student = self._make_student("5593")
+        lesson = TimeTable.objects.create(
+            Day="2026-08-22",
+            Hour=time(11, 0),
+            Subject="عربي",
+        )
+        lesson.student.add(student)
+        self.assertFalse(
+            Attendance.objects.filter(student=student, Date="2026-08-22").exists()
+        )
+
+        login = APIClient().post(
+            "/api/student-login/",
+            {"special_number": student.special_number},
+            format="json",
+        )
+        client = APIClient()
+        listing = client.get(
+            f"/api/attendance/?student_id={student.id}",
+            HTTP_AUTHORIZATION=f"StudentToken {login.data['access']}",
+        )
+        self.assertEqual(listing.status_code, 200, listing.data)
+        self.assertIsInstance(listing.data, list, listing.data)
+        row = next(item for item in listing.data if item["Date"] == "2026-08-22")
+        self.assertEqual(row["Status"], "حضور")
+        self.assertTrue(row["is_present"])
+        self.assertEqual(row["Subject"], "عربي")
+        self.assertTrue(
+            Attendance.objects.filter(
+                student=student, Date="2026-08-22", Status=Attendance.STATUS_PRESENT
+            ).exists()
+        )
 
     def test_program_get_and_create(self):
         """طلب program: GET /api/programs/ مع إمكانية الإنشاء بنفس الحقول."""

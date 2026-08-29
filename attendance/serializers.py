@@ -19,14 +19,14 @@ class AttendanceSerializer(serializers.ModelSerializer):
             data = {k: v for k, v in data.items()}
         else:
             data = dict(data or {})
-        if data.get("Status") in (None, "") and data.get("status") not in (None, ""):
-            data["Status"] = data.get("status")
-        if data.get("Date") in (None, "") and data.get("date") not in (None, ""):
-            data["Date"] = data.get("date")
-        if data.get("Status") in (None, "") and data.get("is_present") is True:
-            data["Status"] = Attendance.STATUS_PRESENT
-        if data.get("Status") in (None, "") and data.get("is_present") is False:
-            data["Status"] = Attendance.STATUS_ABSENT
+        raw_status = data.get("Status")
+        if raw_status in (None, ""):
+            raw_status = data.get("status") or data.get("attendance_status")
+        mapped = _normalize_status(raw_status, data.get("is_present"))
+        if mapped:
+            data["Status"] = mapped
+        if data.get("Date") in (None, ""):
+            data["Date"] = data.get("date") or data.get("day") or data.get("session_date")
         return super().to_internal_value(data)
 
     def to_representation(self, instance):
@@ -42,7 +42,29 @@ class AttendanceSerializer(serializers.ModelSerializer):
         data["session_date"] = date
         data["subject"] = subject
         data["subject_name"] = subject
+        data["Subject"] = subject
         return data
+
+
+def _normalize_status(raw_status, is_present):
+    if raw_status not in (None, ""):
+        key = str(raw_status).strip().lower()
+        aliases = {
+            "حضور": Attendance.STATUS_PRESENT,
+            "غياب": Attendance.STATUS_ABSENT,
+            "present": Attendance.STATUS_PRESENT,
+            "absent": Attendance.STATUS_ABSENT,
+            "true": Attendance.STATUS_PRESENT,
+            "false": Attendance.STATUS_ABSENT,
+        }
+        if key in aliases:
+            return aliases[key]
+        return str(raw_status).strip()
+    if is_present is True:
+        return Attendance.STATUS_PRESENT
+    if is_present is False:
+        return Attendance.STATUS_ABSENT
+    return None
 
 
 def _attendance_subject(instance):
