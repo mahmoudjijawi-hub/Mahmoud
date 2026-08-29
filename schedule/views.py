@@ -1,9 +1,88 @@
 """واجهات /api/time_table/ و /api/programs/."""
+import uuid
+
+from django.db.models import Q
 from rest_framework import viewsets
 
 from core.permissions import IsManagerOrReadOnlyAuthenticated
 from schedule.models import TimeTable, Program
 from schedule.serializers import TimeTableSerializer, ProgramSerializer
+
+
+def _is_uuid(value):
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+def _resolve_student_ref(value):
+    """قبول UUID الطالب أو الحساب أو الرقم المميز."""
+    from academics.models import Student
+    from core.digits import normalize_digits
+
+    text = normalize_digits(str(value or "").strip())
+    if not text:
+        return None
+    if _is_uuid(text):
+        return (
+            Student.objects.filter(pk=text).select_related("stage", "section").first()
+            or Student.objects.filter(user_id=text).select_related("stage", "section").first()
+        )
+    return Student.objects.filter(special_number=text).select_related("stage", "section").first()
+
+
+def _student_program_tokens(student):
+    """كلمات مسار الطالب لمطابقتها مع حقول البرنامج."""
+    from academics.subjects import student_subject_names
+
+    tokens = list(student_subject_names(student))
+    for raw in (student.class1, student.class2, student.class3, student.student_class):
+        if not raw:
+            continue
+        tokens.extend(
+            part.strip()
+            for part in str(raw).replace("،", ",").split(",")
+            if part.strip()
+        )
+    if getattr(student, "stage", None) is not None:
+        tokens.append(student.stage.name)
+    if getattr(student, "section", None) is not None:
+        tokens.append(student.section.name)
+    seen = set()
+    unique = []
+    for token in tokens:
+        key = token.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(token.strip())
+    return unique
+
+
+def _filter_programs_for_student(qs, student):
+    """
+    شاشة برنامج الطالب: GET /api/programs/?student_id=
+    نطابق المادة/الصف/الشعبة، وإن لم يطابق شيء نعيد الجدول كاملاً حتى لا تبقى الصفحة فارغة.
+    """
+    tokens = _student_program_tokens(student)
+    if not tokens:
+        return qs
+    query = Q()
+    for token in tokens:
+        query |= (
+            Q(subject_name__iexact=token)
+            | Q(subject_name__icontains=token)
+            | Q(grade__iexact=token)
+            | Q(grade__icontains=token)
+            | Q(section__iexact=token)
+            | Q(section__icontains=token)
+            | Q(certificate_type__iexact=token)
+            | Q(certificate_type__icontains=token)
+        )
+    filtered = qs.filter(query).distinct()
+    return filtered if filtered.exists() else qs
 
 
 class TimeTableViewSet(viewsets.ModelViewSet):
@@ -29,20 +108,36 @@ class ProgramViewSet(viewsets.ModelViewSet):
     permission_classes = (IsManagerOrReadOnlyAuthenticated,)
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
+    def paginate_queryset(self, queryset):
+        params = self.request.query_params
+        if params.get("page") or params.get("page_size"):
+            return super().paginate_queryset(queryset)
+        return None
+
     def get_queryset(self):
         qs = Program.objects.select_related("teacher_name").all()
         user = self.request.user
         params = self.request.query_params
         if user.role == "teacher":
             qs = qs.filter(teacher_name__user=user)
-        if user.role == "student":
-            student = getattr(user, "student_profile", None)
-            if student is None:
-                return qs.none()
-            from academics.subjects import student_subject_names
 
-            subjects = student_subject_names(student)
-            qs = qs.filter(subject_name__in=subjects)
+        student_ref = (
+            params.get("student_id")
+            or params.get("studentId")
+            or params.get("student")
+        )
+        target_student = None
+        if user.role == "student":
+            target_student = getattr(user, "student_profile", None)
+            if target_student is None:
+                return qs.none()
+            # الطالب يرى جدوله فقط حتى لو أرسل معرّف طالب آخر
+        elif student_ref:
+            target_student = _resolve_student_ref(student_ref)
+
+        if target_student is not None:
+            qs = _filter_programs_for_student(qs, target_student)
+
         for key in ("certificate_type", "grade", "section", "day", "time_slot", "room", "subject_name"):
             value = params.get(key)
             if value:
