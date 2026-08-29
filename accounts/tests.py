@@ -1262,6 +1262,62 @@ class PostmanAPITests(TestCase):
         self.assertEqual(listing.status_code, 200)
         self.assertTrue(Program.objects.filter(pk=create.data["id"]).exists())
 
+    def test_student_schedule_lists_programs_by_student_id(self):
+        """شاشة برنامج الطالب: GET /api/programs/?student_id= مع StudentToken."""
+        teacher = self._make_teacher("8891")
+        self.client.post(
+            "/api/programs/",
+            {
+                "certificate_type": "baccalaureate",
+                "grade": "علمي",
+                "section": "الشعبة الأولى",
+                "day": "الأحد",
+                "time_slot": "8:00",
+                "room": "القاعة 101",
+                "subject_name": "الفيزياء",
+                "teacher_name": str(teacher.id),
+            },
+            format="json",
+        )
+        student = self._make_student("8892")
+        login = APIClient().post(
+            "/api/student-login/",
+            {"special_number": student.special_number},
+            format="json",
+        )
+        self.assertEqual(login.status_code, 200, login.data)
+        token = login.data["access"]
+        student_id = login.data["student_id"]
+        client = APIClient()
+        listing = client.get(
+            f"/api/programs/?student_id={student_id}",
+            HTTP_AUTHORIZATION=f"StudentToken {token}",
+        )
+        self.assertEqual(listing.status_code, 200, listing.data)
+        rows = listing.data["results"] if isinstance(listing.data, dict) else listing.data
+        self.assertIsInstance(rows, list, listing.data)
+        self.assertGreaterEqual(len(rows), 1)
+        lesson = next((row for row in rows if row.get("subject_name") == "الفيزياء"), rows[0])
+        self.assertEqual(lesson["day"], "الأحد")
+        self.assertTrue(str(lesson["time_slot"]).startswith("08:00"))
+        self.assertEqual(lesson["subject_name"], "الفيزياء")
+
+        create_attempt = client.post(
+            "/api/programs/",
+            {
+                "certificate_type": "x",
+                "grade": "y",
+                "section": "z",
+                "day": "الاثنين",
+                "time_slot": "09:00",
+                "room": "1",
+                "subject_name": "كيمياء",
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"StudentToken {token}",
+        )
+        self.assertEqual(create_attempt.status_code, 403)
+
     def test_refresh(self):
         """طلب refresh: POST /api/token/refresh/"""
         client = APIClient()

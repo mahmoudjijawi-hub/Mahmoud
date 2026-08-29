@@ -149,3 +149,46 @@ class ProgramSerializer(serializers.ModelSerializer):
             "teacher_name",
         )
         read_only_fields = ("id",)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["day"] = _arabic_weekday(data.get("day"))
+        data["time_slot"] = _normalize_time_slot(data.get("time_slot"))
+        data["hour"] = data["time_slot"]
+        data["subject"] = data.get("subject_name")
+        return data
+
+
+_WEEKDAY_AR = {
+    "sunday": "الأحد",
+    "monday": "الاثنين",
+    "tuesday": "الثلاثاء",
+    "wednesday": "الأربعاء",
+    "thursday": "الخميس",
+    "friday": "الجمعة",
+    "saturday": "السبت",
+    "الأحد": "الأحد",
+    "الاثنين": "الاثنين",
+    "الثلاثاء": "الثلاثاء",
+    "الأربعاء": "الأربعاء",
+    "الخميس": "الخميس",
+    "الجمعة": "الجمعة",
+    "السبت": "السبت",
+}
+
+
+def _arabic_weekday(value):
+    text = str(value or "").strip()
+    if not text:
+        return text
+    return _WEEKDAY_AR.get(text.lower(), _WEEKDAY_AR.get(text, text))
+
+
+def _normalize_time_slot(value):
+    text = str(value or "").strip()
+    if not text:
+        return text
+    match = re.search(r"(\d{1,2}):(\d{2})", text)
+    if not match:
+        return text
+    return f"{int(match.group(1)):02d}:{match.group(2)}"
