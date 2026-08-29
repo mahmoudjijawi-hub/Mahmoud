@@ -537,11 +537,25 @@ class StudentSerializer(serializers.ModelSerializer):
         subjects = data.get("subjects") or []
         data["classes"] = subjects
         data["subjects_list"] = subjects
-        # شاشة العلامات: class1.includes(المرحلة) && class1.includes(الصف)
-        # شاشة التعديل تخزّن المرحلة والفرع في class1، والمواد في class2
-        level = (instance.class1 or "").strip()
-        grade = (instance.class2 or "").strip()
-        grade_tokens = ("علمي", "أدبي", "عاشر", "تاسع", "ثامن", "سابع")
-        if grade in grade_tokens and grade not in level:
-            data["class1"] = f"{level} {grade}".strip()
+        path = student_path_labels(instance)
+        data["class1"] = path["class1"]
+        data["class2"] = path["class2"]
+        data["class3"] = path["class3"]
+        # شاشة البرنامج تخزّن الصف/الشعبة من تسجيل الدخول بهذه الأسماء
+        data["studentGrade"] = path["class1"]
+        data["studentSection"] = path["class3"]
         return data
+
+
+def student_path_labels(student):
+    """class1 المرحلة+الفرع و class3 الشعبة — نفس الشكل في الدخول والبروفايل والبرنامج."""
+    level = (getattr(student, "class1", None) or "").strip()
+    class2 = (getattr(student, "class2", None) or "").strip()
+    class3 = (getattr(student, "class3", None) or "").strip()
+    grade_tokens = ("علمي", "أدبي", "عاشر", "تاسع", "ثامن", "سابع")
+    class1 = level
+    if class2 in grade_tokens and class2 not in level:
+        class1 = f"{level} {class2}".strip()
+    if not class3 and getattr(student, "section", None) is not None:
+        class3 = (student.section.name or "").strip()
+    return {"class1": class1, "class2": class2, "class3": class3}

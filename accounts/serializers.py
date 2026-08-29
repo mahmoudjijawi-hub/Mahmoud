@@ -137,6 +137,18 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 payload["user"]["first_name"] = student.first_name
                 payload["user"]["last_name"] = student.last_name
                 payload["user"]["studentId"] = str(student.id)
+                from academics.serializers import student_path_labels
+
+                path = student_path_labels(student)
+                payload["class1"] = path["class1"]
+                payload["class2"] = path["class2"]
+                payload["class3"] = path["class3"]
+                payload["studentGrade"] = path["class1"]
+                payload["studentSection"] = path["class3"]
+                payload["user"]["class1"] = path["class1"]
+                payload["user"]["class3"] = path["class3"]
+                payload["user"]["studentGrade"] = path["class1"]
+                payload["user"]["studentSection"] = path["class3"]
         return payload
 
     def _resolve_manager_user(self, username, password):

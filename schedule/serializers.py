@@ -193,9 +193,25 @@ class ProgramSerializer(serializers.ModelSerializer):
         data["time_slot"] = _normalize_time_slot(data.get("time_slot"))
         data["hour"] = data["time_slot"]
         data["subject"] = data.get("subject_name")
-        teacher_id = data.get("teacher_name")
-        data["teacher_name"] = str(teacher_id) if teacher_id not in (None, "") else None
+        teacher = getattr(instance, "teacher_name", None)
+        teacher_id = str(teacher.pk) if teacher is not None else None
+        student = self.context.get("student")
+        # شاشة برنامج الطالب تعرض teacher_name كنص؛ محرر المدير يحتاج المعرّف
+        if student is not None and teacher is not None:
+            data["teacher_id"] = teacher_id
+            data["teacher_name"] = f"{teacher.first_name} {teacher.last_name}".strip()
+        else:
+            data["teacher_name"] = teacher_id
         data["teacher"] = data["teacher_name"]
+        data["class3"] = (instance.section or "").strip()
+        if student is not None:
+            from academics.serializers import student_path_labels
+
+            path = student_path_labels(student)
+            data["class1"] = path["class1"]
+            data["class3"] = path["class3"] or data["class3"]
+        else:
+            data["class1"] = _program_class1_label(instance)
         return data
 
 
@@ -238,6 +254,25 @@ def _normalize_time_slot(value):
     if not match:
         return text
     return f"{int(match.group(1)) % 24:02d}:{int(match.group(2) or 0):02d}"
+
+
+_CERT_AR = {
+    "baccalaureate": "بكالوريا",
+    "eleventh": "حادي عشر",
+    "transitional": "تاسع / عاشر",
+}
+
+
+def _program_class1_label(program):
+    """شكل class1 نفسه عند الطالب حتى يطابق فلتر الفرونت الصف/الشعبة."""
+    cert = _CERT_AR.get(
+        str(getattr(program, "certificate_type", "") or "").strip().lower(),
+        str(getattr(program, "certificate_type", "") or "").strip(),
+    )
+    grade = (getattr(program, "grade", None) or "").strip()
+    if cert and grade:
+        return f"{cert} {grade}".strip()
+    return cert or grade
 
 
 def _normalize_certificate(value):
