@@ -208,9 +208,12 @@ _WEEKDAY_AR = {
     "friday": "الجمعة",
     "saturday": "السبت",
     "الأحد": "الأحد",
+    "الاحد": "الأحد",
     "الاثنين": "الاثنين",
+    "الإثنين": "الاثنين",
     "الثلاثاء": "الثلاثاء",
     "الأربعاء": "الأربعاء",
+    "الاربعاء": "الأربعاء",
     "الخميس": "الخميس",
     "الجمعة": "الجمعة",
     "السبت": "السبت",
@@ -225,13 +228,16 @@ def _arabic_weekday(value):
 
 
 def _normalize_time_slot(value):
-    text = str(value or "").strip()
+    """08:00 و 8:00 و 8 و ٨ تصبح 08:00 حتى ترتبط خلية الأحد الأولى."""
+    from core.digits import normalize_digits
+
+    text = normalize_digits(str(value or "")).strip()
     if not text:
         return text
-    match = re.search(r"(\d{1,2}):(\d{2})", text)
+    match = re.search(r"(\d{1,2})(?::(\d{2}))?", text)
     if not match:
         return text
-    return f"{int(match.group(1)):02d}:{match.group(2)}"
+    return f"{int(match.group(1)) % 24:02d}:{int(match.group(2) or 0):02d}"
 
 
 def _normalize_certificate(value):
@@ -276,7 +282,8 @@ def _existing_program_slot(validated_data):
     return None
 
 
-def _collapse_duplicate_slots(instance):
+def programs_in_same_slot(instance):
+    """كل الصفوف التي تمثل نفس خلية الجدول (الأحد 08:00 مثلاً)."""
     lookup = _slot_lookup(
         {
             "certificate_type": instance.certificate_type,
@@ -286,10 +293,14 @@ def _collapse_duplicate_slots(instance):
             "time_slot": instance.time_slot,
         }
     )
-    extras = [
+    return [
         program
-        for program in Program.objects.exclude(pk=instance.pk)
+        for program in Program.objects.all()
         if _slot_matches(program, lookup)
     ]
-    for program in extras:
-        program.delete()
+
+
+def _collapse_duplicate_slots(instance):
+    for program in programs_in_same_slot(instance):
+        if program.pk != instance.pk:
+            program.delete()
