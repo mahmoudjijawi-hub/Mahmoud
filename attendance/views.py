@@ -7,17 +7,21 @@ from core.permissions import IsManagerOrReadOnlyAuthenticated
 
 
 def _sync_attendance_from_timetable(student):
-    """حصص time_table القديمة بلا سجل حضور تظهر كـ حضور في شاشة الطالب."""
+    """حصص time_table القديمة بلا سجل حضور تظهر كـ حضور لكل مادة على حدة."""
+    from attendance.models import attendance_subject_key
     from schedule.models import TimeTable
 
-    seen_days = set()
+    seen = set()
     for row in TimeTable.objects.filter(student=student).order_by("Day", "-Hour"):
-        if row.Day in seen_days:
+        subject = attendance_subject_key(row.Subject)
+        key = (row.Day, subject)
+        if key in seen:
             continue
-        seen_days.add(row.Day)
+        seen.add(key)
         Attendance.objects.get_or_create(
             student=student,
             Date=row.Day,
+            subject=subject,
             defaults={"Status": Attendance.STATUS_PRESENT},
         )
 
@@ -67,4 +71,4 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         if target is not None:
             _sync_attendance_from_timetable(target)
             qs = qs.filter(student=target)
-        return qs.order_by("-Date", "-id")
+        return qs.order_by("-Date", "subject", "-id")

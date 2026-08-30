@@ -76,7 +76,7 @@ class TimeTableSerializer(serializers.ModelSerializer):
 
         subject = _first(data, "Subject", "subject", "subject_name", "subjectName")
         if subject is not None:
-            data["Subject"] = subject
+            data["Subject"] = _arabic_subject(subject)
 
         teacher = _first(data, "Teacher", "teacher", "teacher_id", "teacherId")
         if teacher is not None:
@@ -122,11 +122,7 @@ class TimeTableSerializer(serializers.ModelSerializer):
         present_ids, absent_ids = _attendance_roll(raw)
         if not present_ids and not absent_ids:
             for student in instance.student.all():
-                Attendance.objects.update_or_create(
-                    student=student,
-                    Date=instance.Day,
-                    defaults={"Status": Attendance.STATUS_PRESENT},
-                )
+                _upsert_attendance(student, instance, Attendance.STATUS_PRESENT)
             return
 
         present_ids = set(_existing_student_ids(present_ids))
@@ -139,22 +135,14 @@ class TimeTableSerializer(serializers.ModelSerializer):
             student = by_id.get(sid)
             if student is None:
                 continue
-            Attendance.objects.update_or_create(
-                student=student,
-                Date=instance.Day,
-                defaults={"Status": Attendance.STATUS_PRESENT},
-            )
+            _upsert_attendance(student, instance, Attendance.STATUS_PRESENT)
         for sid in absent_ids:
             if sid in present_ids:
                 continue
             student = by_id.get(sid)
             if student is None:
                 continue
-            Attendance.objects.update_or_create(
-                student=student,
-                Date=instance.Day,
-                defaults={"Status": Attendance.STATUS_ABSENT},
-            )
+            _upsert_attendance(student, instance, Attendance.STATUS_ABSENT)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -214,43 +202,35 @@ def _existing_student_ids(ids):
 
 def _existing_attendance_lesson(validated_data):
     day = validated_data.get("Day")
-    subject = (validated_data.get("Subject") or "").strip()
+    subject = _arabic_subject(validated_data.get("Subject"))
     if not day or not subject:
         return None
-    return (
-        TimeTable.objects.filter(Day=day, Subject=subject)
-        .order_by("id")
-        .first()
-    )
-
-
-_SUBJECT_AR = {
-    "math": "رياضيات",
-    "mathematics": "رياضيات",
-    "science": "علوم",
-    "physics": "فيزياء",
-    "chemistry": "كيمياء",
-    "arabic": "عربي",
-    "national": "وطنية",
-    "religion": "ديانة",
-    "english": "انكليزي",
-    "french": "فرنسي",
-    "geography": "جغرافيا",
-    "history": "تاريخ",
-    "philosophy": "فلسفة",
-}
+    for lesson in TimeTable.objects.filter(Day=day).order_by("id"):
+        if _arabic_subject(lesson.Subject) == subject:
+            return lesson
+    return None
 
 
 def _arabic_subject(value):
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    return _SUBJECT_AR.get(text.lower(), text)
+    from attendance.models import attendance_subject_key
+
+    return attendance_subject_key(value)
+
+
+def _upsert_attendance(student, lesson, status):
+    from attendance.models import Attendance, attendance_subject_key
+
+    Attendance.objects.update_or_create(
+        student=student,
+        Date=lesson.Day,
+        subject=attendance_subject_key(lesson.Subject),
+        defaults={"Status": status},
+    )
 
 
 def _timetable_attendance_status(instance, request, student=None):
-    """حالة حضور الطالب في ذلك اليوم — شاشة الطالب تقرأ Status من time_table."""
-    from attendance.models import Attendance
+    """حالة حضور الطالب في تلك المادة وذلك اليوم."""
+    from attendance.models import Attendance, attendance_subject_key
 
     if student is None and request is not None and getattr(request.user, "role", None) == "student":
         student = getattr(request.user, "student_profile", None)
@@ -258,7 +238,14 @@ def _timetable_attendance_status(instance, request, student=None):
         student = instance.student.first()
     if student is None:
         return None
-    record = Attendance.objects.filter(student=student, Date=instance.Day).first()
+    subject = attendance_subject_key(instance.Subject)
+    record = Attendance.objects.filter(
+        student=student, Date=instance.Day, subject=subject
+    ).first()
+    if record is None and subject:
+        record = Attendance.objects.filter(
+            student=student, Date=instance.Day, subject=""
+        ).first()
     return record.Status if record is not None else None
 
 

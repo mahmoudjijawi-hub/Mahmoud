@@ -8,13 +8,16 @@ class AttendanceSerializer(serializers.ModelSerializer):
     student = serializers.PrimaryKeyRelatedField(queryset=Student.objects.all())
     Date = serializers.DateField()
     Status = serializers.ChoiceField(choices=Attendance.STATUS_CHOICES)
+    subject = serializers.CharField(max_length=30, required=False, allow_blank=True)
 
     class Meta:
         model = Attendance
-        fields = ("id", "student", "Date", "Status", "stage", "section")
+        fields = ("id", "student", "Date", "Status", "subject", "stage", "section")
         read_only_fields = ("id",)
 
     def to_internal_value(self, data):
+        from attendance.models import attendance_subject_key
+
         if hasattr(data, "items"):
             data = {k: v for k, v in data.items()}
         else:
@@ -27,7 +30,24 @@ class AttendanceSerializer(serializers.ModelSerializer):
             data["Status"] = mapped
         if data.get("Date") in (None, ""):
             data["Date"] = data.get("date") or data.get("day") or data.get("session_date")
+        raw_subject = data.get("subject")
+        if raw_subject in (None, ""):
+            raw_subject = data.get("Subject") or data.get("subject_name")
+        data["subject"] = attendance_subject_key(raw_subject)
         return super().to_internal_value(data)
+
+    def create(self, validated_data):
+        from attendance.models import attendance_subject_key
+
+        validated_data["subject"] = attendance_subject_key(validated_data.get("subject"))
+        existing = Attendance.objects.filter(
+            student=validated_data["student"],
+            Date=validated_data["Date"],
+            subject=validated_data["subject"],
+        ).first()
+        if existing is not None:
+            return self.update(existing, validated_data)
+        return super().create(validated_data)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -68,12 +88,16 @@ def _normalize_status(raw_status, is_present):
 
 
 def _attendance_subject(instance):
-    """المادة من حصة time_table لنفس الطالب والتاريخ إن وُجدت."""
+    """المادة المحفوظة على السجل، أو من حصة time_table إن كان السجل قديماً."""
+    from attendance.models import attendance_subject_key
     from schedule.models import TimeTable
 
+    stored = attendance_subject_key(getattr(instance, "subject", ""))
+    if stored:
+        return stored
     row = (
         TimeTable.objects.filter(student=instance.student, Day=instance.Date)
         .order_by("-Hour")
         .first()
     )
-    return (row.Subject or "").strip() if row is not None else ""
+    return attendance_subject_key(row.Subject) if row is not None else ""
