@@ -158,13 +158,21 @@ class TimeTableSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        data["day"] = data.get("Day")
-        data["date"] = data.get("Day")
+        day = data.get("Day")
+        subject = _arabic_subject(data.get("Subject"))
+        data["Day"] = day
+        data["day"] = day
+        data["date"] = day
+        data["Date"] = day
+        data["session_date"] = day
         data["hour"] = data.get("Hour")
-        data["subject"] = data.get("Subject")
-        data["subject_name"] = data.get("Subject")
+        data["Subject"] = subject
+        data["subject"] = subject
+        data["subject_name"] = subject
         data["teacher"] = data.get("Teacher")
-        status = _timetable_attendance_status(instance, self.context.get("request"))
+        status = _timetable_attendance_status(
+            instance, self.context.get("request"), self.context.get("student")
+        )
         data["Status"] = status
         data["status"] = status
         data["attendance_status"] = status
@@ -216,12 +224,35 @@ def _existing_attendance_lesson(validated_data):
     )
 
 
-def _timetable_attendance_status(instance, request):
+_SUBJECT_AR = {
+    "math": "رياضيات",
+    "mathematics": "رياضيات",
+    "science": "علوم",
+    "physics": "فيزياء",
+    "chemistry": "كيمياء",
+    "arabic": "عربي",
+    "national": "وطنية",
+    "religion": "ديانة",
+    "english": "انكليزي",
+    "french": "فرنسي",
+    "geography": "جغرافيا",
+    "history": "تاريخ",
+    "philosophy": "فلسفة",
+}
+
+
+def _arabic_subject(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return _SUBJECT_AR.get(text.lower(), text)
+
+
+def _timetable_attendance_status(instance, request, student=None):
     """حالة حضور الطالب في ذلك اليوم — شاشة الطالب تقرأ Status من time_table."""
     from attendance.models import Attendance
 
-    student = None
-    if request is not None and getattr(request.user, "role", None) == "student":
+    if student is None and request is not None and getattr(request.user, "role", None) == "student":
         student = getattr(request.user, "student_profile", None)
     if student is None:
         student = instance.student.first()
