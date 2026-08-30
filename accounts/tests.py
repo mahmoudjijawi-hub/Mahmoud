@@ -1240,6 +1240,86 @@ class PostmanAPITests(TestCase):
         )
         self.assertEqual(no_teacher.status_code, 201, no_teacher.data)
 
+    def test_admin_attendance_saves_present_and_absent_students(self):
+        """شاشة تحضير المدير: POST /api/time_table/ بـ present_students و absent_students."""
+        from attendance.models import Attendance
+        from academics.subjects import apply_subjects
+
+        present = self._make_student("5601")
+        absent = self._make_student("5602")
+        other = self._make_student("5603")
+        present.class1 = "بكالوريا علمي"
+        present.class3 = "الشعبة الأولى"
+        present.save(update_fields=["class1", "class3"])
+        apply_subjects(present, ["رياضيات"], merge=False)
+        absent.class1 = "بكالوريا علمي"
+        absent.class3 = "الشعبة الأولى"
+        absent.save(update_fields=["class1", "class3"])
+        apply_subjects(absent, ["رياضيات"], merge=False)
+        other.class1 = "بكالوريا علمي"
+        other.class3 = "الشعبة الثانية"
+        other.save(update_fields=["class1", "class3"])
+        teacher = self._make_teacher("5604")
+
+        listing = self.client.get("/api/students/")
+        self.assertEqual(listing.status_code, 200, listing.data)
+        rows = listing.data["results"] if isinstance(listing.data, dict) else listing.data
+        present_row = next(item for item in rows if str(item["id"]) == str(present.id))
+        self.assertIn("رياضيات", present_row["subjects"])
+        self.assertIn("رياضيات", present_row["registered_subjects"])
+        self.assertIn("رياضيات", present_row["subject_names"])
+        self.assertIn("بكالوريا", present_row["class1"])
+        self.assertEqual(present_row["class3"], "الشعبة الأولى")
+
+        payload = {
+            "present_students": [str(present.id)],
+            "absent_students": [str(absent.id)],
+            "day": "2026-08-30",
+            "hour": "14:32:05",
+            "subject": "رياضيات",
+            "level": "بكالوريا",
+            "section": "الشعبة الأولى",
+            "teacher": str(teacher.id),
+        }
+        saved = self.client.post("/api/time_table/", payload, format="json")
+        self.assertIn(saved.status_code, (200, 201), saved.data)
+        self.assertEqual(
+            Attendance.objects.get(student=present, Date="2026-08-30").Status,
+            Attendance.STATUS_PRESENT,
+        )
+        self.assertEqual(
+            Attendance.objects.get(student=absent, Date="2026-08-30").Status,
+            Attendance.STATUS_ABSENT,
+        )
+        self.assertFalse(
+            Attendance.objects.filter(student=other, Date="2026-08-30").exists()
+        )
+
+        flipped = dict(payload)
+        flipped["present_students"] = [str(absent.id)]
+        flipped["absent_students"] = [str(present.id)]
+        again = self.client.post("/api/time_table/", flipped, format="json")
+        self.assertIn(again.status_code, (200, 201), again.data)
+        self.assertEqual(TimeTable.objects.filter(Day="2026-08-30", Subject="رياضيات").count(), 1)
+        self.assertEqual(
+            Attendance.objects.get(student=present, Date="2026-08-30").Status,
+            Attendance.STATUS_ABSENT,
+        )
+        self.assertEqual(
+            Attendance.objects.get(student=absent, Date="2026-08-30").Status,
+            Attendance.STATUS_PRESENT,
+        )
+
+        everyone_absent = dict(payload)
+        everyone_absent["present_students"] = []
+        everyone_absent["absent_students"] = [str(present.id), str(absent.id)]
+        all_out = self.client.post("/api/time_table/", everyone_absent, format="json")
+        self.assertIn(all_out.status_code, (200, 201), all_out.data)
+        self.assertEqual(
+            Attendance.objects.filter(Date="2026-08-30", Status=Attendance.STATUS_ABSENT).count(),
+            2,
+        )
+
     def test_student_attendance_list_uses_status_and_date(self):
         """شاشة حضور الطالب: GET /api/attendance/ يعيد Status و Date ومرادفات الفرونت."""
         from attendance.models import Attendance

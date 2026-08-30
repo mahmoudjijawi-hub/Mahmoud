@@ -88,8 +88,11 @@ class TimeTableSerializer(serializers.ModelSerializer):
         else:
             data["Teacher"] = None
 
+        present_ids, absent_ids = _attendance_roll(data)
         students = _first(data, "student", "students", "student_ids")
-        if students is not None and not isinstance(students, (list, tuple)):
+        if present_ids or absent_ids:
+            data["student"] = _existing_student_ids([*present_ids, *absent_ids])
+        elif students is not None and not isinstance(students, (list, tuple)):
             data["student"] = [students]
         elif isinstance(students, (list, tuple)):
             data["student"] = list(students)
@@ -97,19 +100,60 @@ class TimeTableSerializer(serializers.ModelSerializer):
         return super().to_internal_value(data)
 
     def create(self, validated_data):
-        instance = super().create(validated_data)
-        self._record_attendance(instance)
+        """شاشة المدير: نفس اليوم/المادة تُحدَّث، والحضور والغياب يُحفظان معاً."""
+        instance = _existing_attendance_lesson(validated_data)
+        if instance is not None:
+            instance = self.update(instance, validated_data)
+        else:
+            instance = super().create(validated_data)
+        self._record_attendance_roll(instance)
         return instance
 
-    def _record_attendance(self, instance):
-        """شاشة الحضور تستخدم /api/time_table/ — نكتب سجلات حضور للطلاب المحددين."""
+    def update(self, instance, validated_data):
+        instance = super().update(instance, validated_data)
+        self._record_attendance_roll(instance)
+        return instance
+
+    def _record_attendance_roll(self, instance):
+        """present_students → حضور، absent_students → غياب. الجسم القديم: الكل حاضر."""
         from attendance.models import Attendance
 
-        for student in instance.student.all():
+        raw = self.initial_data if hasattr(self, "initial_data") else {}
+        present_ids, absent_ids = _attendance_roll(raw)
+        if not present_ids and not absent_ids:
+            for student in instance.student.all():
+                Attendance.objects.update_or_create(
+                    student=student,
+                    Date=instance.Day,
+                    defaults={"Status": Attendance.STATUS_PRESENT},
+                )
+            return
+
+        present_ids = set(_existing_student_ids(present_ids))
+        absent_ids = set(_existing_student_ids(absent_ids))
+        by_id = {
+            str(student.pk): student
+            for student in Student.objects.filter(pk__in=[*present_ids, *absent_ids])
+        }
+        for sid in present_ids:
+            student = by_id.get(sid)
+            if student is None:
+                continue
             Attendance.objects.update_or_create(
                 student=student,
                 Date=instance.Day,
                 defaults={"Status": Attendance.STATUS_PRESENT},
+            )
+        for sid in absent_ids:
+            if sid in present_ids:
+                continue
+            student = by_id.get(sid)
+            if student is None:
+                continue
+            Attendance.objects.update_or_create(
+                student=student,
+                Date=instance.Day,
+                defaults={"Status": Attendance.STATUS_ABSENT},
             )
 
     def to_representation(self, instance):
@@ -126,6 +170,50 @@ class TimeTableSerializer(serializers.ModelSerializer):
         data["attendance_status"] = status
         data["is_present"] = status == "حضور" if status else None
         return data
+
+
+def _as_id_list(value):
+    if value in (None, ""):
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item) for item in value if item not in (None, "")]
+    return [str(value)]
+
+
+def _attendance_roll(data):
+    present = _as_id_list(
+        _first(data, "present_students", "presentStudents", "present")
+    )
+    absent = _as_id_list(
+        _first(data, "absent_students", "absentStudents", "absent")
+    )
+    return present, absent
+
+
+def _existing_student_ids(ids):
+    import uuid as uuid_mod
+
+    clean = []
+    for item in ids:
+        try:
+            clean.append(str(uuid_mod.UUID(str(item))))
+        except (TypeError, ValueError, AttributeError):
+            continue
+    if not clean:
+        return []
+    return [str(pk) for pk in Student.objects.filter(pk__in=clean).values_list("pk", flat=True)]
+
+
+def _existing_attendance_lesson(validated_data):
+    day = validated_data.get("Day")
+    subject = (validated_data.get("Subject") or "").strip()
+    if not day or not subject:
+        return None
+    return (
+        TimeTable.objects.filter(Day=day, Subject=subject)
+        .order_by("id")
+        .first()
+    )
 
 
 def _timetable_attendance_status(instance, request):

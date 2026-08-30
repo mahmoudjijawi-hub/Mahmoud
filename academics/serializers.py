@@ -537,6 +537,9 @@ class StudentSerializer(serializers.ModelSerializer):
         subjects = data.get("subjects") or []
         data["classes"] = subjects
         data["subjects_list"] = subjects
+        data["registered_subjects"] = subjects
+        data["courses"] = subjects
+        data["subject_names"] = subjects
         path = student_path_labels(instance)
         data["class1"] = path["class1"]
         data["class2"] = path["class2"]
