@@ -155,11 +155,92 @@ class TimeTableViewSet(viewsets.ModelViewSet):
     permission_classes = (IsManagerOrReadOnlyAuthenticated,)
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
+    def paginate_queryset(self, queryset):
+        params = self.request.query_params
+        if params.get("page") or params.get("page_size"):
+            return super().paginate_queryset(queryset)
+        return None
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["student"] = self._target_student()
+        return context
+
+    def _target_student(self):
+        user = self.request.user
+        if getattr(user, "role", None) == "student":
+            return getattr(user, "student_profile", None)
+        student_ref = (
+            self.request.query_params.get("student_id")
+            or self.request.query_params.get("studentId")
+            or self.request.query_params.get("student")
+        )
+        if student_ref:
+            return _resolve_student_ref(student_ref)
+        return None
+
+    def list(self, request, *args, **kwargs):
+        """شاشة حضور الطالب: GET /api/time_table/?student_id= مصفوفة Date/Status/subject."""
+        student = self._target_student()
+        if student is not None:
+            return Response(self._student_attendance_log(student))
+        return super().list(request, *args, **kwargs)
+
+    def _student_attendance_log(self, student):
+        from attendance.models import Attendance
+        from attendance.serializers import _attendance_subject
+        from attendance.views import _sync_attendance_from_timetable
+        from schedule.serializers import _arabic_subject
+
+        _sync_attendance_from_timetable(student)
+        lessons = list(
+            TimeTable.objects.filter(student=student)
+            .select_related("Teacher")
+            .prefetch_related("student")
+            .order_by("-Day", "-Hour")
+        )
+        serializer = self.get_serializer(lessons, many=True)
+        rows = list(serializer.data)
+        seen_days = {str(row.get("Date") or row.get("Day") or "") for row in rows}
+
+        extras = Attendance.objects.filter(student=student).order_by("-Date")
+        for record in extras:
+            day = record.Date.isoformat() if hasattr(record.Date, "isoformat") else str(record.Date)
+            if day in seen_days:
+                continue
+            subject = _arabic_subject(_attendance_subject(record))
+            rows.append(
+                {
+                    "id": str(record.id),
+                    "Day": day,
+                    "day": day,
+                    "date": day,
+                    "Date": day,
+                    "session_date": day,
+                    "Subject": subject,
+                    "subject": subject,
+                    "subject_name": subject,
+                    "Status": record.Status,
+                    "status": record.Status,
+                    "attendance_status": record.Status,
+                    "is_present": record.Status == Attendance.STATUS_PRESENT,
+                }
+            )
+            seen_days.add(day)
+
+        rows.sort(key=lambda row: str(row.get("Date") or ""), reverse=True)
+        return rows
+
     def get_queryset(self):
         qs = TimeTable.objects.select_related("Teacher").prefetch_related("student").all()
         user = self.request.user
+        student = self._target_student()
         if user.role == "student":
-            return qs.filter(student__user=user).distinct()
+            if student is None:
+                return qs.none()
+            return qs.filter(student=student).distinct()
+        if student is not None:
+            return qs.filter(student=student).distinct()
         if user.role == "teacher":
             return qs.filter(Teacher__user=user)
         teacher_id = self.request.query_params.get("teacher_id")

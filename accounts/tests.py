@@ -1320,6 +1320,74 @@ class PostmanAPITests(TestCase):
             2,
         )
 
+    def test_student_time_table_list_matches_attendance_page(self):
+        """شاشة حضور الطالب: GET /api/time_table/?student_id= مع Date و Status."""
+        from attendance.models import Attendance
+
+        present = self._make_student("5611")
+        absent = self._make_student("5612")
+        teacher = self._make_teacher("5613")
+        saved = self.client.post(
+            "/api/time_table/",
+            {
+                "present_students": [str(present.id)],
+                "absent_students": [str(absent.id)],
+                "day": "2026-08-30",
+                "hour": "14:32:05",
+                "subject": "math",
+                "teacher": str(teacher.id),
+            },
+            format="json",
+        )
+        self.assertIn(saved.status_code, (200, 201), saved.data)
+
+        only_absent = self.client.post(
+            "/api/attendance/",
+            {
+                "student": str(present.id),
+                "Date": "2026-08-31",
+                "Status": "غياب",
+            },
+            format="json",
+        )
+        self.assertEqual(only_absent.status_code, 201, only_absent.data)
+
+        login = APIClient().post(
+            "/api/student-login/",
+            {"special_number": present.special_number},
+            format="json",
+        )
+        client = APIClient()
+        listing = client.get(
+            f"/api/time_table/?student_id={present.id}",
+            HTTP_AUTHORIZATION=f"StudentToken {login.data['access']}",
+        )
+        self.assertEqual(listing.status_code, 200, listing.data)
+        self.assertIsInstance(listing.data, list, listing.data)
+        by_date = {row["Date"]: row for row in listing.data}
+        self.assertEqual(by_date["2026-08-30"]["Status"], Attendance.STATUS_PRESENT)
+        self.assertEqual(by_date["2026-08-30"]["status"], "حضور")
+        self.assertTrue(by_date["2026-08-30"]["is_present"])
+        self.assertEqual(by_date["2026-08-30"]["subject"], "رياضيات")
+        self.assertEqual(by_date["2026-08-30"]["Subject"], "رياضيات")
+        self.assertEqual(by_date["2026-08-31"]["Status"], Attendance.STATUS_ABSENT)
+        self.assertFalse(by_date["2026-08-31"]["is_present"])
+
+        absent_login = APIClient().post(
+            "/api/student-login/",
+            {"special_number": absent.special_number},
+            format="json",
+        )
+        absent_list = APIClient().get(
+            f"/api/time_table/?student_id={absent.id}",
+            HTTP_AUTHORIZATION=f"StudentToken {absent_login.data['access']}",
+        )
+        self.assertEqual(absent_list.status_code, 200, absent_list.data)
+        absent_row = next(row for row in absent_list.data if row["Date"] == "2026-08-30")
+        self.assertEqual(absent_row["Status"], "غياب")
+        self.assertFalse(absent_row["is_present"])
+        self.assertEqual(absent_row["subject"], "رياضيات")
+
     def test_student_attendance_list_uses_status_and_date(self):
         """شاشة حضور الطالب: GET /api/attendance/ يعيد Status و Date ومرادفات الفرونت."""
         from attendance.models import Attendance
