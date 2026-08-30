@@ -1264,7 +1264,7 @@ class PostmanAPITests(TestCase):
         listing = self.client.get("/api/students/")
         self.assertEqual(listing.status_code, 200, listing.data)
         rows = listing.data["results"] if isinstance(listing.data, dict) else listing.data
-        present_row = next(item for item in rows if item["id"] == str(present.id))
+        present_row = next(item for item in rows if str(item["id"]) == str(present.id))
         self.assertIn("رياضيات", present_row["subjects"])
         self.assertIn("رياضيات", present_row["registered_subjects"])
         self.assertIn("رياضيات", present_row["subject_names"])
