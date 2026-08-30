@@ -201,14 +201,17 @@ class TimeTableViewSet(viewsets.ModelViewSet):
         )
         serializer = self.get_serializer(lessons, many=True)
         rows = list(serializer.data)
-        seen_days = {str(row.get("Date") or row.get("Day") or "") for row in rows}
+        seen = {
+            (str(row.get("Date") or row.get("Day") or ""), _arabic_subject(row.get("subject")))
+            for row in rows
+        }
 
-        extras = Attendance.objects.filter(student=student).order_by("-Date")
+        extras = Attendance.objects.filter(student=student).order_by("-Date", "subject")
         for record in extras:
             day = record.Date.isoformat() if hasattr(record.Date, "isoformat") else str(record.Date)
-            if day in seen_days:
-                continue
             subject = _arabic_subject(_attendance_subject(record))
+            if (day, subject) in seen:
+                continue
             rows.append(
                 {
                     "id": str(record.id),
@@ -226,9 +229,12 @@ class TimeTableViewSet(viewsets.ModelViewSet):
                     "is_present": record.Status == Attendance.STATUS_PRESENT,
                 }
             )
-            seen_days.add(day)
+            seen.add((day, subject))
 
-        rows.sort(key=lambda row: str(row.get("Date") or ""), reverse=True)
+        rows.sort(
+            key=lambda row: (str(row.get("Date") or ""), str(row.get("subject") or "")),
+            reverse=True,
+        )
         return rows
 
     def get_queryset(self):

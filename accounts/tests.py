@@ -1388,6 +1388,110 @@ class PostmanAPITests(TestCase):
         self.assertFalse(absent_row["is_present"])
         self.assertEqual(absent_row["subject"], "رياضيات")
 
+    def test_attendance_keeps_separate_status_per_subject_same_day(self):
+        """نفس اليوم: حاضر بمادة وغائب بأخرى — سجلان منفصلان."""
+        from attendance.models import Attendance
+
+        student = self._make_student("5701")
+        teacher = self._make_teacher("5702")
+        math = self.client.post(
+            "/api/time_table/",
+            {
+                "present_students": [str(student.id)],
+                "absent_students": [],
+                "day": "2026-09-01",
+                "hour": "08:00:00",
+                "subject": "رياضيات",
+                "teacher": str(teacher.id),
+            },
+            format="json",
+        )
+        self.assertIn(math.status_code, (200, 201), math.data)
+        physics = self.client.post(
+            "/api/time_table/",
+            {
+                "present_students": [],
+                "absent_students": [str(student.id)],
+                "day": "2026-09-01",
+                "hour": "10:00:00",
+                "subject": "فيزياء",
+                "teacher": str(teacher.id),
+            },
+            format="json",
+        )
+        self.assertIn(physics.status_code, (200, 201), physics.data)
+
+        self.assertEqual(
+            Attendance.objects.filter(student=student, Date="2026-09-01").count(), 2
+        )
+        self.assertEqual(
+            Attendance.objects.get(
+                student=student, Date="2026-09-01", subject="رياضيات"
+            ).Status,
+            Attendance.STATUS_PRESENT,
+        )
+        self.assertEqual(
+            Attendance.objects.get(
+                student=student, Date="2026-09-01", subject="فيزياء"
+            ).Status,
+            Attendance.STATUS_ABSENT,
+        )
+
+        login = APIClient().post(
+            "/api/student-login/",
+            {"special_number": student.special_number},
+            format="json",
+        )
+        client = APIClient()
+        table = client.get(
+            f"/api/time_table/?student_id={student.id}",
+            HTTP_AUTHORIZATION=f"StudentToken {login.data['access']}",
+        )
+        self.assertEqual(table.status_code, 200, table.data)
+        by_subject = {row["subject"]: row for row in table.data if row["Date"] == "2026-09-01"}
+        self.assertEqual(by_subject["رياضيات"]["Status"], "حضور")
+        self.assertTrue(by_subject["رياضيات"]["is_present"])
+        self.assertEqual(by_subject["فيزياء"]["Status"], "غياب")
+        self.assertFalse(by_subject["فيزياء"]["is_present"])
+
+        listing = client.get(
+            f"/api/attendance/?student_id={student.id}",
+            HTTP_AUTHORIZATION=f"StudentToken {login.data['access']}",
+        )
+        self.assertEqual(listing.status_code, 200, listing.data)
+        att = {row["subject"]: row for row in listing.data if row["Date"] == "2026-09-01"}
+        self.assertEqual(att["رياضيات"]["Status"], "حضور")
+        self.assertEqual(att["فيزياء"]["Status"], "غياب")
+
+        again_math = self.client.post(
+            "/api/time_table/",
+            {
+                "present_students": [],
+                "absent_students": [str(student.id)],
+                "day": "2026-09-01",
+                "hour": "08:00:00",
+                "subject": "math",
+                "teacher": str(teacher.id),
+            },
+            format="json",
+        )
+        self.assertIn(again_math.status_code, (200, 201), again_math.data)
+        self.assertEqual(
+            Attendance.objects.filter(student=student, Date="2026-09-01").count(), 2
+        )
+        self.assertEqual(
+            Attendance.objects.get(
+                student=student, Date="2026-09-01", subject="رياضيات"
+            ).Status,
+            Attendance.STATUS_ABSENT,
+        )
+        self.assertEqual(
+            Attendance.objects.get(
+                student=student, Date="2026-09-01", subject="فيزياء"
+            ).Status,
+            Attendance.STATUS_ABSENT,
+        )
+
     def test_student_attendance_list_uses_status_and_date(self):
         """شاشة حضور الطالب: GET /api/attendance/ يعيد Status و Date ومرادفات الفرونت."""
         from attendance.models import Attendance
