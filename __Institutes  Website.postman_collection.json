@@ -1,0 +1,1112 @@
+{
+  "info": {
+    "_postman_id": "4de6c234-f93a-4c40-abbe-8247327ea73e",
+    "name": "‏‏Institutes  Website",
+    "description": "### Welcome to Postman! This is your first collection. \n\nCollections are your starting point for building and testing APIs. You can use this one to:\n\n• Group related requests\n• Test your API in real-world scenarios\n• Document and share your requests\n\nUpdate the name and overview whenever you’re ready to make it yours.\n\n[Learn more about Postman Collections.](https://learning.postman.com/docs/collections/collections-overview/)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "52342568",
+    "_collection_link": "https://go.postman.co/collection/52342568-4de6c234-f93a-4c40-abbe-8247327ea73e?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "token",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"username\": \"ammar\" ,\r\n    \"password\": \"ammar12345ammar\"\r\n\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/token/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "token",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "api for manager",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTYzMTYyLCJpYXQiOjE3NzQzNTgzNjIsImp0aSI6IjE4YzA0NDZhNWFjMDRlZWNiMmE5ZDVjNTI3NzVjYTI4IiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.LSYneGY_uvj0ElSGNT1VQ5Jj4Kn1CXLtMqGX45iEP_Q",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "",
+            "value": "",
+            "type": "text",
+            "disabled": true
+          }
+        ],
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/managers/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "managers",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "all api",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTYzNDA2LCJpYXQiOjE3NzQzNTg2MDYsImp0aSI6IjNhZGRjNjQ1MjcyZDQyYTM5MmZmOWJhNmQ3Mjc0OTMyIiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.aMb9OxsPnQAtoUwxRVWpEUoHmTL_vmm_NGRlUeEycPE",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "",
+            "value": "",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "api for teachers",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTYzNDA2LCJpYXQiOjE3NzQzNTg2MDYsImp0aSI6IjNhZGRjNjQ1MjcyZDQyYTM5MmZmOWJhNmQ3Mjc0OTMyIiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.aMb9OxsPnQAtoUwxRVWpEUoHmTL_vmm_NGRlUeEycPE",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/teachers/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "teachers",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "api for exams",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTYzNDA2LCJpYXQiOjE3NzQzNTg2MDYsImp0aSI6IjNhZGRjNjQ1MjcyZDQyYTM5MmZmOWJhNmQ3Mjc0OTMyIiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.aMb9OxsPnQAtoUwxRVWpEUoHmTL_vmm_NGRlUeEycPE",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/exams/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "exams",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "api for time table",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc1MjQ5NjEyLCJpYXQiOjE3NzQ2NDQ4MTIsImp0aSI6IjE5OWVjNDIxNDMxNDQyMzA5OWEyMDBiZjUxMGJkNzE3IiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.xTqkRSBF3_uUmSU31eyfxsIoG8_vgM70aOWSiUAziKg",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"student\": [\r\n        \"402a6f34-5cce-4f3b-8cd7-fb5ae7dcacbe\"\r\n    ],\r\n    \"Day\": \"2026-03-06\",\r\n    \"Hour\": \"17:50:51\",\r\n    \"Subject\": \"Mathematics\",\r\n    \"Teacher\": \"321b7974-7a6c-4150-a197-72058f709111\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/time_table/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "time_table",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "payments",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTYzODQ1LCJpYXQiOjE3NzQzNTkwNDUsImp0aSI6IjQyYjMzZTZiYWZlMTRmYzFhZTYzYzEwMWQ1MTQwYjVjIiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.9CiJrwR8syI4mq98sUyKX2SAFEbgaRqbSkktEy0dDu8",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n\r\n    \"student\": \"fe0177df-e424-4c1a-a387-b2f12cacf026\", \r\n    \"FullAmount\": \"1000.00\",\r\n    \"PaidAmount\": \"750.00\",\r\n    \"Paymentresult\": \"250.00\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/payments/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "payments",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "api for students",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTYzODkyLCJpYXQiOjE3NzQzNTkwOTIsImp0aSI6ImI1ZTJmOWRhYjhiODQyMjFhOTFkY2IzZGM0ZmM1ZTRkIiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.pxA1574HFw24u4KTkrzrsoZb9ROuyuoF2ln7853yoJM",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/students/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "students",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "patch tetcher",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTYzOTgzLCJpYXQiOjE3NzQzNTkxODMsImp0aSI6ImZmNjk0ODJlNDZiNzRhNWViNzE2MGRkM2Y4NjVmNGQ5IiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.LvMZGAQ1INOpVvtIJxId-9cIfq_-YeDAFwTEnyAlnnk",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"user\": \"3017a69c-5b4a-46c5-9d9c-a67c14e8a915\", \r\n    \"first_name\": \"djoser\",\r\n    \"last_name\": \"jwt\",\r\n    \"special_number\": \"3\",\r\n    \"gender\": \"Yes\",\r\n    \"teacher_number\": \"0987654343\",\r\n    \"expertise\": \"dhtfgjhjk\",\r\n    \"cv\": \"z.dkvns.kdvb.adnsvwvsdvb.vb\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/teachers/321b7974-7a6c-4150-a197-72058f709111/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "teachers",
+            "321b7974-7a6c-4150-a197-72058f709111",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "patch students",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTY0MDQ1LCJpYXQiOjE3NzQzNTkyNDUsImp0aSI6ImZjNzllZDkxNjQ2YzRhMTI4OWFhNzgxMmRjN2QzNGZhIiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.g4wryFUpXkZY9uqZekVgqLcZsiterZfbl9E9kfKzu7E",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"first_name\": \"djoser\",\r\n    \"last_name\": \"adsfdgfh\",\r\n    \"special_number\": \"112\",\r\n    \"student_class\": \"1\",\r\n    \"parent_number\": \"1234567890\",\r\n    \"student_number\": \"0987654321\",\r\n    \"address\": \"zc\",\r\n    \"personal_notes\": \"xcv\",\r\n    \"is_payer\": true,\r\n    \"class1\": \"cghfgdsfdghhbd\",\r\n    \"class2\": \"sdfgndsadvbgfd\",\r\n    \"class3\": \"sdfghjgfdsdfghd\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/students/cf581c12-e39e-4c95-b1a7-37e1c62ebc49/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "students",
+            "cf581c12-e39e-4c95-b1a7-37e1c62ebc49",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "post manager",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTY0MDQ1LCJpYXQiOjE3NzQzNTkyNDUsImp0aSI6ImZjNzllZDkxNjQ2YzRhMTI4OWFhNzgxMmRjN2QzNGZhIiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.g4wryFUpXkZY9uqZekVgqLcZsiterZfbl9E9kfKzu7E",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"username\": \"ammar_manager_99\",\r\n    \"password\": \"password123\",\r\n    \"first_name\": \"Ammar\",\r\n    \"last_name\": \"Admin\",\r\n    \"special_number\": \"99\",\r\n    \"user_type\": \"1\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/managers/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "managers",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "patch manager",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTY0MTM0LCJpYXQiOjE3NzQzNTkzMzQsImp0aSI6ImRjOGU2MzJlM2Q4MTRkYTNiZDJlMzczMDk2Y2ZjODQyIiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.VKDWRUc-P1oaQ4_dlQYioeMMcxhuaUxn6OECBxVcrfU",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "PATCH",
+        "header": [],
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/managers/58bab966-de90-42ea-a5e7-5de4d187d7bb/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "managers",
+            "58bab966-de90-42ea-a5e7-5de4d187d7bb",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "delete user",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTY0MTczLCJpYXQiOjE3NzQzNTkzNzMsImp0aSI6Ijk3YWU0ZmRiYzllMjQ1ZDNiYTI3YWI2MTU1ZjFlZjg4IiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.vzrtX4TNedwAZAgyYcKuZvMReSxgMtWT5XLDUEJAtFM",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "DELETE",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/managers/58bab966-de90-42ea-a5e7-5de4d187d7bb/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "managers",
+            "58bab966-de90-42ea-a5e7-5de4d187d7bb",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "exams post",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTY0MjQwLCJpYXQiOjE3NzQzNTk0NDAsImp0aSI6IjQxZTRmYTE1YzU3NDRmM2I4ZDYzOTRmODljYzIwYjYwIiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.FGkshqHa8RLC3yMb7rE6YqHtBr_ZysiiO64DezYDGds",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"student\": [\r\n       \"402a6f34-5cce-4f3b-8cd7-fb5ae7dcacbe\"\r\n    ],\r\n    \"special_number\": \"3\",\r\n    \"Nameofexam\": \"math infinity\",\r\n    \"Subject_name\": \"math\",\r\n    \"Date\": \"2026-03-10\",\r\n    \"Itsnote\": \"yes\",\r\n    \"Mark\": 90,\r\n    \"Full_mark\": 100\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/exams/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "exams",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "patch exams",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTY0MzM3LCJpYXQiOjE3NzQzNTk1MzcsImp0aSI6IjU4MjYyYzE5NGRhYjRmMTBhZDY1ZGE3MmEwNjc2ODc5IiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.uGOpecB2lbtO-VRPTy__IL6kCPXMpJZNCjKZMRNOXbo",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"student\": [\r\n       \"402a6f34-5cce-4f3b-8cd7-fb5ae7dcacbe\"\r\n    ],\r\n    \"special_number\": \"1234567\",\r\n    \"Nameofexam\": \"math infinity\",\r\n    \"Subject_name\": \"math\",\r\n    \"Date\": \"2026-03-10\",\r\n    \"Itsnote\": \"yes\",\r\n    \"Mark\": 90,\r\n    \"Full_mark\": 100\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/exams/34b34739-d2d4-493b-82ac-f189c506cb03/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "exams",
+            "34b34739-d2d4-493b-82ac-f189c506cb03",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "delete exams",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "DELETE",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": ""
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/exams/34b34739-d2d4-493b-82ac-f189c506cb03/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "exams",
+            "34b34739-d2d4-493b-82ac-f189c506cb03",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "pay post",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTY0NDg5LCJpYXQiOjE3NzQzNTk2ODksImp0aSI6ImI3NjVlYzc1OTIzMzRlYzA4OTA5ZTdjN2E0Nzk2MjM3IiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.noqDYo6c_tnJFD9MJmQ9W3ML0FOZZ07ArYZofXy_oQg",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"student\": \"fe0177df-e424-4c1a-a387-b2f12cacf026\" ,\r\n    \"FullAmount\": \"1000.00\",\r\n    \"PaidAmount\": \"750.00\",\r\n    \"Paymentresult\": \"250.00\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/payments/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "payments",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "pay patch",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"student\":\"402a6f34-5cce-4f3b-8cd7-fb5ae7dcacbe\",\r\n    \"FullAmount\": 1200.00,\r\n    \"PaidAmount\": 500.00\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/payments/c629fb3d-677e-41ae-80f7-d5d33692d26d/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "payments",
+            "c629fb3d-677e-41ae-80f7-d5d33692d26d",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "pay delete",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTY0NTUwLCJpYXQiOjE3NzQzNTk3NTAsImp0aSI6ImUzYzdjMzIzNDlhNTRlM2FiOGZhZGViYTRjN2I1MTA4IiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.vjDUXBdY0gZzoI-v_bHl-SbyC60aF7Sgvmt14hhoP0o",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "DELETE",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": ""
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/payments/c629fb3d-677e-41ae-80f7-d5d33692d26d/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "payments",
+            "c629fb3d-677e-41ae-80f7-d5d33692d26d",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "time table post",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc1MjQ5NjUzLCJpYXQiOjE3NzQ2NDQ4NTMsImp0aSI6ImEzNThhNTNmZTUyMjRiZjk4MDUxZDE0ZWJjODZlMDFmIiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.XaZ5Ouez1Z_kxUvS70SrFb1J2rDqHPJZE5xRz2u4PWc",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"student\": [\r\n        \"402a6f34-5cce-4f3b-8cd7-fb5ae7dcacbe\"\r\n    ],\r\n    \"Day\": \"2026-03-06\",\r\n    \"Hour\": \"17:50:51\",\r\n    \"Subject\": \"Mathematics\",\r\n    \"Teacher\": \"321b7974-7a6c-4150-a197-72058f709111\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/time_table/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "time_table",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "time table putch",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTY0Nzc5LCJpYXQiOjE3NzQzNTk5NzksImp0aSI6IjJjOWI0OTcwMmZmNTQ1OGI4YTEyYjhmNjE3ZTlhMmYyIiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.HcOQ_08DWqNzineG0wzUo91Eyso4Syh1g0O9gQuPU1M",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"student\": [\r\n        \"402a6f34-5cce-4f3b-8cd7-fb5ae7dcacbe\"\r\n    ],\r\n    \"Day\": \"2026-03-06\",\r\n    \"Hour\": \"17:50:51\",\r\n    \"Subject\": \"Mathematics\",\r\n    \"Teacher\": \"321b7974-7a6c-4150-a197-72058f709111\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/time_table/172c5561-4201-439d-808b-49bbfc564061/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "time_table",
+            "172c5561-4201-439d-808b-49bbfc564061",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "time table delete",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTY0Nzc5LCJpYXQiOjE3NzQzNTk5NzksImp0aSI6IjJjOWI0OTcwMmZmNTQ1OGI4YTEyYjhmNjE3ZTlhMmYyIiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.HcOQ_08DWqNzineG0wzUo91Eyso4Syh1g0O9gQuPU1M",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "DELETE",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": ""
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/time_table/172c5561-4201-439d-808b-49bbfc564061/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "time_table",
+            "172c5561-4201-439d-808b-49bbfc564061",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "add teacher",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTcxNjc0LCJpYXQiOjE3NzQzNjY4NzQsImp0aSI6ImUxMTZmMjg2MTdjZjRhM2Y4ZDkwNTI2NjNkMDBjYTI0IiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.1X8ZuysF0vbV8Cm4L2j8207Qs145dI1hjnGrkGu40nY",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"first_name\": \"عمار\",\r\n    \"last_name\": \"القدور\",\r\n    \"special_number\": 1233, \r\n    \"gender\": true,\r\n    \"teacher_number\": \"2323422\",\r\n    \"expertise\": \"رياضيات\",\r\n    \"cv\": \"خبرة تدريس طويلة...\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/teachers/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "teachers",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "add student",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTc0MzE3LCJpYXQiOjE3NzQzNjk1MTcsImp0aSI6IjdlNWE0MTEyZDE1YzRkZWViMDE4YjYzNWZmZjgxMmZlIiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.bvpwekNDpzuhmOS0EzxZhY3w9-YuTx_M-HjrN3KtyTg",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"first_name\": \"أحمد\",\r\n    \"last_name\": \"العلي\",\r\n    \"special_number\": 2024001,\r\n    \"student_class\": 10,\r\n    \"parent_number\": \"0933111222\",\r\n    \"student_number\": \"5544\",\r\n    \"address\": \"اللاذقية - المشروع الأول\",\r\n    \"personal_notes\": \"طالب مجتهد\",\r\n    \"is_payer\": false,\r\n    \"class1\": \"رياضيات\",\r\n    \"class2\": \"فيزياء\",\r\n    \"class3\": \"كيمياء\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/students/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "students",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "delete student",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc0OTc4MTA1LCJpYXQiOjE3NzQzNzMzMDUsImp0aSI6Ijg4MmI1MTkzMTI5MjQwNmRiNjExZGFlM2U4ZWY4OTA0IiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.VdCfhHC8l68vL99MtbTtDj3yEv7oOWZcq_pLZu1TNks",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/students/f21905ee-e208-4d6d-9f21-3e169097c4fe/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "students",
+            "f21905ee-e208-4d6d-9f21-3e169097c4fe",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "program",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc1MzI2MzE0LCJpYXQiOjE3NzQ3MjE1MTQsImp0aSI6ImM2ZmQ4YTg5YTU0YTRhOWViZGY1YjI3ZWYzYmQ5NjE1IiwidXNlcl9pZCI6IjlhYWY2NDU2LTYwODEtNDY0ZS04ZGM3LTVhNDg3M2IzZTg0YSJ9.T1ZnrFW0ryNyCkKVJHgVQz2YmEWX-qCOohJfKOC7IWg",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"certificate_type\": \"baccalaureate\",\r\n    \"grade\": \"علمي\",\r\n    \"section\": \"الشعبة الأولى\",\r\n    \"day\": \"الأحد\",\r\n    \"time_slot\": \"08:00\",\r\n    \"room\": \"القاعة 101\",\r\n    \"subject_name\": \"الفيزياء\",\r\n    \"teacher_name\": \"6b27b224-fc56-4583-92ea-a68a2ec28191\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/programs/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "programs",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "refresh",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"refresh\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc3NTQyNDQ0NywiaWF0IjoxNzc0ODE5NjQ3LCJqdGkiOiIxZDAwYmE5NmFmZjM0YTFlOTc1NGJjYWM3YjQ3MGNmNyIsInVzZXJfaWQiOiI5YWFmNjQ1Ni02MDgxLTQ2NGUtOGRjNy01YTQ4NzNiM2U4NGEifQ.FdErHgT0icqI839bx8bQDFjcmDr7V3V5CCVf1wE5dgo\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api/token/refresh/",
+          "protocol": "https",
+          "host": [
+            "granulative-nonirrationally-shasta",
+            "ngrok-free",
+            "dev"
+          ],
+          "path": [
+            "api",
+            "token",
+            "refresh",
+            ""
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "https://granulative-nonirrationally-shasta.ngrok-free.dev/api",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ]
+}
