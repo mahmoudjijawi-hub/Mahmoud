@@ -5,6 +5,12 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.exceptions import Throttled
 
+from accounts.login_limit import (
+    clear_failures,
+    current_lock,
+    lock_payload,
+    register_failure,
+)
 from accounts.models import Manager
 from accounts.serializers import CustomTokenObtainPairSerializer, ManagerSerializer
 from core.permissions import IsManager
@@ -15,7 +21,7 @@ from core.throttles import (
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
-    """POST /api/token/ — مطابق لطلب token، مع حد 5 محاولات/دقيقة لصفحة كلمة مرور المدير."""
+    """POST /api/token/ — مطابق لطلب token، مع قفل بعد 6 محاولات فاشلة لصفحة كلمة المرور."""
 
     permission_classes = (AllowAny,)
     serializer_class = CustomTokenObtainPairSerializer
@@ -29,18 +35,45 @@ class CustomTokenObtainPairView(TokenObtainPairView):
             ensure_admin_credentials()
         except Exception:
             pass
-        from accounts.login_limit import lock_payload, register_manager_password_attempt
-        from core.throttles import _is_manager_password_attempt
+        from core.throttles import _is_special_number_attempt
 
-        if _is_manager_password_attempt(request):
-            blocked, wait, info = register_manager_password_attempt(request)
+        password_page = not _is_special_number_attempt(request)
+        if password_page:
+            blocked, wait, info = current_lock()
             request._manager_login_rate_limit = info
             if blocked:
-                # 400 وليس 429 فقط: صفحة كلمة المرور تعرض أخطاء الدخول عبر catch الـ 400.
-                response = Response(lock_payload(wait), status=status.HTTP_400_BAD_REQUEST)
-                response["Retry-After"] = str(wait)
-                return apply_manager_login_rate_limit_headers(request, response)
-        return super().post(request, *args, **kwargs)
+                return self._lock_response(wait)
+
+        try:
+            response = super().post(request, *args, **kwargs)
+        except Exception:
+            # فشل الدخول يُرمى كاستثناء قبل أي Response؛ هنا نعدّه ونقفل عند السادسة.
+            if password_page:
+                blocked, wait, info = register_failure()
+                request._manager_login_rate_limit = info
+                if blocked:
+                    return self._lock_response(wait)
+            raise
+
+        if not password_page:
+            return response
+
+        if _login_issued_token(response):
+            _blocked, _wait, info = clear_failures()
+            request._manager_login_rate_limit = info
+            return response
+
+        blocked, wait, info = register_failure()
+        request._manager_login_rate_limit = info
+        if blocked:
+            return self._lock_response(wait)
+        return response
+
+    def _lock_response(self, wait):
+        # 200 حتى يظهر النص في then() إذا كانت الواجهة لا تعرض catch الـ 400.
+        response = Response(lock_payload(wait), status=status.HTTP_200_OK)
+        response["Retry-After"] = str(wait)
+        return apply_manager_login_rate_limit_headers(self.request, response)
 
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)
@@ -52,6 +85,15 @@ class CustomTokenObtainPairView(TokenObtainPairView):
             wait=seconds,
             detail="لقد قمت بعدة محاولات كثيرة، يرجى المحاولة مرة أخرى بعد دقيقتين.",
         )
+
+
+def _login_issued_token(response):
+    if getattr(response, "status_code", None) != 200:
+        return False
+    data = getattr(response, "data", None) or {}
+    if not hasattr(data, "get"):
+        return False
+    return bool(data.get("access") or data.get("token") or data.get("accessToken"))
 
 
 class ManagerViewSet(viewsets.ModelViewSet):

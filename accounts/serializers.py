@@ -26,7 +26,10 @@ class LoginError(APIException):
     def __init__(self, message, code):
         # dict يُمرَّر كما هو عبر exception_handler دون لفّ كل قيمة بقائمة
         self.detail = {
+            "success": False,
             "detail": message,
+            "error": message,
+            "message": message,
             "code": code,
             "non_field_errors": [message],
         }
@@ -197,7 +200,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # قبول أسماء حقول شائعة من الفرونت إضافة لاسم الـ Collection
         username = str(
             _pick(attrs, "username")
-            or _pick(raw, "username", "userName", "user_name", "user", "UserName", "login")
+            or _pick(raw, "username", "userName", "user_name", "user", "UserName", "login", "name", "Name", "email")
             or ""
         ).strip()
         password = str(
@@ -218,6 +221,12 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             return self._validate_special_number(request, special_number)
 
         # مسار اسم المستخدم وكلمة المرور (المدير) — مطابق للـ Collection
+        from accounts.login_limit import LOCK_MESSAGE, current_lock
+
+        locked, _wait, _info = current_lock()
+        if locked:
+            self._auth_error(LOCK_MESSAGE, "too_many_requests")
+
         if not username or not password:
             auth_logger.info("failed_login reason=missing_credentials")
             self._auth_error("يجب إدخال اسم المستخدم وكلمة المرور.", "missing_credentials")
