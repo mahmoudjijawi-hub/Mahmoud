@@ -63,7 +63,7 @@ def current_lock():
 
 
 def register_failure():
-    """يسجّل محاولة فاشلة. المحاولة السادسة تقفل دقيقتين."""
+    """يسجّل محاولة فاشلة. خامس فشل يقفل دقيقتين ويعيد رسالة الانتظار."""
     return _mutate("fail")
 
 
@@ -105,7 +105,8 @@ def _mutate_once(action):
 
         stamps = _fresh_stamps(guard.attempts, now_ts)
         stamps.append(now_ts)
-        if len(stamps) > LIMIT:
+        # خامس فشل يقفّل فوراً ويعيد رسالة الدقيقتين بدل «اسم/كلمة خطأ».
+        if len(stamps) >= LIMIT:
             locked_until = now + timedelta(seconds=LOCKOUT_SECONDS)
             guard.attempts = stamps
             guard.locked_until = locked_until

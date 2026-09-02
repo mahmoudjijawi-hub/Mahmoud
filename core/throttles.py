@@ -129,24 +129,23 @@ def _is_special_number_attempt(request):
         data = request.data
     except Exception:
         return False
-    if not hasattr(data, "get"):
-        return False
-    special = str(
-        data.get("special_number")
-        or data.get("specialNumber")
-        or data.get("special")
-        or data.get("number")
-        or ""
-    ).strip()
-    username = str(
-        data.get("username")
-        or data.get("userName")
-        or data.get("UserName")
-        or data.get("login")
-        or ""
-    ).strip()
-    password = str(data.get("password") or data.get("Password") or "").strip()
-    return bool(special) and not (username and password)
+    special = _first_field(data, "special_number", "specialNumber", "special", "number")
+    username = _first_field(
+        data,
+        "username",
+        "userName",
+        "UserName",
+        "user_name",
+        "login",
+        "user",
+        "User",
+        "name",
+        "Name",
+        "email",
+    )
+    password = _first_field(data, "password", "Password", "pass", "passwd", "pwd")
+    # الرقم المميز وحده. أي اسم/كلمة مرور = صفحة المدير حتى لو بقي الرقم المميز بالجسم.
+    return bool(special) and not username and not password
 
 
 def apply_manager_login_rate_limit_headers(request, response):
