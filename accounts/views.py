@@ -8,16 +8,19 @@ from rest_framework.exceptions import Throttled
 from accounts.models import Manager
 from accounts.serializers import CustomTokenObtainPairSerializer, ManagerSerializer
 from core.permissions import IsManager
-from core.throttles import LoginRateThrottle, SpecialNumberRateThrottle
+from core.throttles import (
+    SpecialNumberRateThrottle,
+    ManagerPasswordLoginThrottle,
+    apply_manager_login_rate_limit_headers,
+)
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
-    """POST /api/token/ — مطابق لطلب token، مع حد معدل مزدوج."""
+    """POST /api/token/ — مطابق لطلب token، مع حد 5 محاولات/دقيقة لصفحة كلمة مرور المدير."""
 
     permission_classes = (AllowAny,)
     serializer_class = CustomTokenObtainPairSerializer
-    throttle_classes = (LoginRateThrottle, SpecialNumberRateThrottle)
-    throttle_scope = "login"
+    throttle_classes = (ManagerPasswordLoginThrottle, SpecialNumberRateThrottle)
 
     def post(self, request, *args, **kwargs):
         # قبل أي محاولة دخول: ضمان أن حساب المدير وكلمة مروره جاهزان من الإعدادات
@@ -29,11 +32,15 @@ class CustomTokenObtainPairView(TokenObtainPairView):
             pass
         return super().post(request, *args, **kwargs)
 
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        return apply_manager_login_rate_limit_headers(request, response)
+
     def throttled(self, request, wait):
-        # رسالة عربية واضحة بدل نص DRF الإنجليزي عندما يُحسب الحد
+        seconds = int(wait) if wait else 120
         raise Throttled(
-            wait=wait,
-            detail="تم تجاوز عدد محاولات الدخول. انتظر قليلاً ثم أعد المحاولة.",
+            wait=seconds,
+            detail="لقد قمت بعدة محاولات كثيرة، يرجى المحاولة مرة أخرى بعد دقيقتين.",
         )
 
 
