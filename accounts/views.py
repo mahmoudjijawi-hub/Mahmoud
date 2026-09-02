@@ -6,13 +6,13 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.exceptions import Throttled
 
 from accounts.login_limit import (
+    LOCK_MESSAGE,
     clear_failures,
     current_lock,
-    lock_payload,
     register_failure,
 )
 from accounts.models import Manager
-from accounts.serializers import CustomTokenObtainPairSerializer, ManagerSerializer
+from accounts.serializers import CustomTokenObtainPairSerializer, LoginError, ManagerSerializer
 from core.permissions import IsManager
 from core.throttles import (
     SpecialNumberRateThrottle,
@@ -70,10 +70,13 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         return response
 
     def _lock_response(self, wait):
-        # 200 حتى يظهر النص في then() إذا كانت الواجهة لا تعرض catch الـ 400.
-        response = Response(lock_payload(wait), status=status.HTTP_200_OK)
-        response["Retry-After"] = str(wait)
-        return apply_manager_login_rate_limit_headers(self.request, response)
+        # نفس مسار خطأ كلمة المرور (400 + LoginError) حتى تعرض الواجهة الرسالة.
+        raise LoginError(
+            LOCK_MESSAGE,
+            "too_many_requests",
+            wait=max(int(wait or 120), 1),
+            locked=True,
+        )
 
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)

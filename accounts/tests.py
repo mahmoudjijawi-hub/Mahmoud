@@ -218,10 +218,9 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response.data["role"], "manager")
 
     def _assert_login_locked(self, response):
-        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.status_code, 400, response.data)
         self.assertEqual(response.data["code"], "too_many_requests")
         self.assertTrue(response.data["locked"])
-        self.assertTrue(response.data["requires_password"])
         self.assertNotIn("access", response.data)
         self.assertEqual(response.data["error"], response.data["detail"])
         self.assertEqual(response.data["message"], response.data["detail"])

@@ -23,9 +23,9 @@ class LoginError(APIException):
 
     status_code = 400
 
-    def __init__(self, message, code):
+    def __init__(self, message, code, **extra):
         # dict يُمرَّر كما هو عبر exception_handler دون لفّ كل قيمة بقائمة
-        self.detail = {
+        detail = {
             "success": False,
             "detail": message,
             "error": message,
@@ -33,6 +33,8 @@ class LoginError(APIException):
             "code": code,
             "non_field_errors": [message],
         }
+        detail.update(extra)
+        self.detail = detail
 
 
 def _client_ip(request):
@@ -223,9 +225,9 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # مسار اسم المستخدم وكلمة المرور (المدير) — مطابق للـ Collection
         from accounts.login_limit import LOCK_MESSAGE, current_lock
 
-        locked, _wait, _info = current_lock()
+        locked, wait, _info = current_lock()
         if locked:
-            self._auth_error(LOCK_MESSAGE, "too_many_requests")
+            raise LoginError(LOCK_MESSAGE, "too_many_requests", wait=wait, locked=True)
 
         if not username or not password:
             auth_logger.info("failed_login reason=missing_credentials")
