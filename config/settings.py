@@ -361,7 +361,7 @@ REST_FRAMEWORK = {
         # حدود أوضح للتطوير حتى لا يُحسب فشل الدخول كـ «لا يستطيع الدخول»
         "anon": "120/minute" if DEBUG else "60/minute",
         "user": "600/minute" if DEBUG else "300/minute",
-        "login": "30/minute" if DEBUG else "5/minute",
+        "login": "5/minute",
         "special_number": "30/minute" if DEBUG else "5/minute",
         "payments": "120/minute" if DEBUG else "60/minute",
     },

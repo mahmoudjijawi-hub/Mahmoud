@@ -1,5 +1,8 @@
 """حدود معدّل الطلبات لمنع التخمين بالقوة الغاشمة على الدخول والرقم المميز."""
-from rest_framework.throttling import ScopedRateThrottle
+import time
+
+from django.core.cache import cache
+from rest_framework.throttling import BaseThrottle, SimpleRateThrottle, ScopedRateThrottle
 
 
 class LoginRateThrottle(ScopedRateThrottle):
@@ -8,13 +11,130 @@ class LoginRateThrottle(ScopedRateThrottle):
     scope = "login"
 
 
-class SpecialNumberRateThrottle(ScopedRateThrottle):
+class SpecialNumberRateThrottle(SimpleRateThrottle):
     """حد صارم جداً على مسار الرقم المميز لأنه قصير وقابل للتخمين."""
 
     scope = "special_number"
+
+    def allow_request(self, request, view):
+        if not _is_special_number_attempt(request):
+            return True
+        return super().allow_request(request, view)
+
+    def get_cache_key(self, request, view):
+        ident = self.get_ident(request) or "unknown"
+        return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
 class PaymentRateThrottle(ScopedRateThrottle):
     """حد خاص بنقاط الدفع لتقليل الإساءة."""
 
     scope = "payments"
+
+
+class ManagerPasswordLoginThrottle(BaseThrottle):
+    """
+    شاشة اسم المدير وكلمة المرور:
+    5 محاولات خلال دقيقة، ثم انتظار دقيقتين (429).
+    """
+
+    limit = 5
+    window_seconds = 60
+    lockout_seconds = 120
+
+    def allow_request(self, request, view):
+        if not _is_manager_password_attempt(request):
+            return True
+
+        ident = self.get_ident(request) or "unknown"
+        now = time.time()
+        history_key = f"throttle_manager_pw_hist_{ident}"
+        lock_key = f"throttle_manager_pw_lock_{ident}"
+
+        lock_until = cache.get(lock_key)
+        if lock_until and float(lock_until) > now:
+            remaining_wait = float(lock_until) - now
+            self._attach(request, remaining=0, reset_at=float(lock_until), wait=remaining_wait)
+            return False
+
+        history = [stamp for stamp in (cache.get(history_key) or []) if now - stamp < self.window_seconds]
+        if len(history) >= self.limit:
+            lock_until = now + self.lockout_seconds
+            cache.set(lock_key, lock_until, timeout=self.lockout_seconds)
+            self._attach(request, remaining=0, reset_at=lock_until, wait=self.lockout_seconds)
+            return False
+
+        history.append(now)
+        cache.set(history_key, history, timeout=self.window_seconds)
+        reset_at = history[0] + self.window_seconds
+        remaining = self.limit - len(history)
+        self._attach(request, remaining=remaining, reset_at=reset_at, wait=None)
+        return True
+
+    def wait(self):
+        return getattr(self, "wait_seconds", self.lockout_seconds)
+
+    def _attach(self, request, remaining, reset_at, wait):
+        self.wait_seconds = wait
+        request._manager_login_rate_limit = {
+            "limit": self.limit,
+            "remaining": max(0, int(remaining)),
+            "reset": int(reset_at),
+        }
+
+
+def _is_manager_password_attempt(request):
+    """فقط جسم اسم المستخدم + كلمة المرور، وليس الرقم المميز."""
+    try:
+        data = request.data
+    except Exception:
+        return False
+    if not hasattr(data, "get"):
+        return False
+    username = str(
+        data.get("username")
+        or data.get("userName")
+        or data.get("UserName")
+        or data.get("user_name")
+        or data.get("login")
+        or ""
+    ).strip()
+    password = str(
+        data.get("password") or data.get("Password") or data.get("pass") or data.get("passwd") or ""
+    ).strip()
+    return bool(username and password)
+
+
+def _is_special_number_attempt(request):
+    try:
+        data = request.data
+    except Exception:
+        return False
+    if not hasattr(data, "get"):
+        return False
+    special = str(
+        data.get("special_number")
+        or data.get("specialNumber")
+        or data.get("special")
+        or data.get("number")
+        or ""
+    ).strip()
+    username = str(
+        data.get("username")
+        or data.get("userName")
+        or data.get("UserName")
+        or data.get("login")
+        or ""
+    ).strip()
+    password = str(data.get("password") or data.get("Password") or "").strip()
+    return bool(special) and not (username and password)
+
+
+def apply_manager_login_rate_limit_headers(request, response):
+    info = getattr(request, "_manager_login_rate_limit", None)
+    if not info:
+        return response
+    response["X-RateLimit-Limit"] = str(info["limit"])
+    response["X-RateLimit-Remaining"] = str(info["remaining"])
+    response["X-RateLimit-Reset"] = str(info["reset"])
+    return response

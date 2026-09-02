@@ -7,6 +7,8 @@ from rest_framework.views import exception_handler
 
 def api_exception_handler(exc, context):
     """يغلف أخطاء DRF مع الإبقاء على بنية التفاصيل القياسية."""
+    from rest_framework.exceptions import Throttled
+
     # تعارض فريد في قاعدة البيانات → 400 عربي واضح بدل 500
     if isinstance(exc, IntegrityError):
         return Response(
@@ -20,4 +22,18 @@ def api_exception_handler(exc, context):
     response = exception_handler(exc, context)
     if response is None:
         return None
+    if isinstance(exc, Throttled):
+        wait = int(getattr(exc, "wait", None) or 120)
+        request = context.get("request") if context else None
+        if request is not None and getattr(request, "_manager_login_rate_limit", None):
+            response.data = {
+                "success": False,
+                "detail": "لقد قمت بعدة محاولات كثيرة، يرجى المحاولة مرة أخرى بعد دقيقتين.",
+                "code": "too_many_requests",
+                "wait": wait,
+            }
+            response["Retry-After"] = str(wait)
+            from core.throttles import apply_manager_login_rate_limit_headers
+
+            apply_manager_login_rate_limit_headers(request, response)
     return response
