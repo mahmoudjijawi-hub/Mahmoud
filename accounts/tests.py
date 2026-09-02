@@ -233,14 +233,14 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response["X-RateLimit-Remaining"], "0")
 
     def test_manager_password_login_rate_limit_is_five_per_minute(self):
-        """شاشة اسم المدير وكلمة المرور: 5 محاولات فاشلة ثم قفل دقيقتين."""
+        """أربع محاولات غلط تُظهر كلمة خطأ؛ الخامسة رسالة الانتظار دقيقتين."""
         cache.clear()
         from accounts.models import ManagerLoginGuard
 
         ManagerLoginGuard.objects.all().delete()
         client = APIClient()
         payload = {"username": "ammar", "password": "wrong-password"}
-        for _ in range(5):
+        for _ in range(4):
             response = client.post("/api/token/", payload, format="json")
             self.assertEqual(response.status_code, 400, response.data)
             self.assertEqual(response.data["code"], "invalid_credentials")
@@ -274,7 +274,7 @@ class PostmanAPITests(TestCase):
 
         ManagerLoginGuard.objects.all().delete()
         client = APIClient()
-        for index in range(5):
+        for index in range(4):
             response = client.post(
                 "/api/login/",
                 {"username": f"wrong-name-{index}", "password": "مؤور"},

@@ -98,6 +98,17 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         """خطأ موحّد تفهمه الواجهة عبر detail و code و non_field_errors."""
         raise LoginError(message, code)
 
+    def _raise_failed_login(self, request, message, code):
+        """يسجّل الفشل؛ عند نفاد المحاولات تُعرض رسالة الانتظار لا كلمة المرور الخطأ."""
+        from accounts.login_limit import LOCK_MESSAGE, register_failure
+
+        blocked, wait, info = register_failure()
+        if request is not None:
+            request._manager_login_rate_limit = info
+        if blocked:
+            raise LoginError(LOCK_MESSAGE, "too_many_requests", wait=wait, locked=True)
+        raise LoginError(message, code)
+
     def _token_payload(self, user):
         """شكل استجابة الدخول الذي تعتمد عليه الواجهة للتوجيه بعد كلمة المرور."""
         touch_activity(user)
@@ -225,13 +236,17 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # مسار اسم المستخدم وكلمة المرور (المدير) — مطابق للـ Collection
         from accounts.login_limit import LOCK_MESSAGE, current_lock
 
-        locked, wait, _info = current_lock()
+        locked, wait, info = current_lock()
+        if request is not None:
+            request._manager_login_rate_limit = info
         if locked:
             raise LoginError(LOCK_MESSAGE, "too_many_requests", wait=wait, locked=True)
 
         if not username or not password:
             auth_logger.info("failed_login reason=missing_credentials")
-            self._auth_error("يجب إدخال اسم المستخدم وكلمة المرور.", "missing_credentials")
+            self._raise_failed_login(
+                request, "يجب إدخال اسم المستخدم وكلمة المرور.", "missing_credentials"
+            )
 
         user = self._resolve_manager_user(username, password)
         if user is None:
@@ -239,10 +254,14 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             user = authenticate(request=request, username=username, password=password)
         if user is None:
             auth_logger.info("failed_login reason=invalid_password")
-            self._auth_error("اسم المستخدم أو كلمة المرور غير صحيحة.", "invalid_credentials")
+            self._raise_failed_login(
+                request,
+                "اسم المستخدم أو كلمة المرور غير صحيحة.",
+                "invalid_credentials",
+            )
         if not user.is_active:
             auth_logger.info("failed_login reason=inactive")
-            self._auth_error("هذا الحساب غير نشط.", "inactive")
+            self._raise_failed_login(request, "هذا الحساب غير نشط.", "inactive")
 
         # إبطال توكنات المدير السابقة عبر زيادة الإصدار
         if user.role == CustomUser.ROLE_MANAGER:

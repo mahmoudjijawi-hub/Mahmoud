@@ -9,7 +9,6 @@ from accounts.login_limit import (
     LOCK_MESSAGE,
     clear_failures,
     current_lock,
-    register_failure,
 )
 from accounts.models import Manager
 from accounts.serializers import CustomTokenObtainPairSerializer, LoginError, ManagerSerializer
@@ -21,7 +20,7 @@ from core.throttles import (
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
-    """POST /api/token/ — مطابق لطلب token، مع قفل بعد 6 محاولات فاشلة لصفحة كلمة المرور."""
+    """POST /api/token/ — مطابق لطلب token، مع قفل بعد 5 محاولات فاشلة لصفحة كلمة المرور."""
 
     permission_classes = (AllowAny,)
     serializer_class = CustomTokenObtainPairSerializer
@@ -42,41 +41,18 @@ class CustomTokenObtainPairView(TokenObtainPairView):
             blocked, wait, info = current_lock()
             request._manager_login_rate_limit = info
             if blocked:
-                return self._lock_response(wait)
+                raise LoginError(
+                    LOCK_MESSAGE,
+                    "too_many_requests",
+                    wait=max(int(wait or 120), 1),
+                    locked=True,
+                )
 
-        try:
-            response = super().post(request, *args, **kwargs)
-        except Exception:
-            # فشل الدخول يُرمى كاستثناء قبل أي Response؛ هنا نعدّه ونقفل عند السادسة.
-            if password_page:
-                blocked, wait, info = register_failure()
-                request._manager_login_rate_limit = info
-                if blocked:
-                    return self._lock_response(wait)
-            raise
-
-        if not password_page:
-            return response
-
-        if _login_issued_token(response):
+        response = super().post(request, *args, **kwargs)
+        if password_page and _login_issued_token(response):
             _blocked, _wait, info = clear_failures()
             request._manager_login_rate_limit = info
-            return response
-
-        blocked, wait, info = register_failure()
-        request._manager_login_rate_limit = info
-        if blocked:
-            return self._lock_response(wait)
         return response
-
-    def _lock_response(self, wait):
-        # نفس مسار خطأ كلمة المرور (400 + LoginError) حتى تعرض الواجهة الرسالة.
-        raise LoginError(
-            LOCK_MESSAGE,
-            "too_many_requests",
-            wait=max(int(wait or 120), 1),
-            locked=True,
-        )
 
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)
@@ -86,7 +62,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         seconds = int(wait) if wait else 120
         raise Throttled(
             wait=seconds,
-            detail="لقد قمت بعدة محاولات كثيرة، يرجى المحاولة مرة أخرى بعد دقيقتين.",
+            detail=LOCK_MESSAGE,
         )
 
 
