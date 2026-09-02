@@ -22,21 +22,29 @@ def api_exception_handler(exc, context):
     response = exception_handler(exc, context)
     if response is None:
         return None
-    if isinstance(exc, Throttled):
-        wait = int(getattr(exc, "wait", None) or 120)
+    if isinstance(exc, Throttled) or (
+        isinstance(response.data, dict) and response.data.get("code") == "too_many_requests"
+    ):
+        wait = int(
+            (response.data.get("wait") if isinstance(response.data, dict) else None)
+            or getattr(exc, "wait", None)
+            or 120
+        )
         request = context.get("request") if context else None
-        if request is not None and getattr(request, "_manager_login_rate_limit", None):
-            message = "لقد قمت بعدة محاولات كثيرة، يرجى المحاولة مرة أخرى بعد دقيقتين."
-            response.data = {
-                "success": False,
-                "detail": message,
-                "error": message,
-                "message": message,
-                "non_field_errors": [message],
-                "code": "too_many_requests",
-                "wait": wait,
-            }
-            response["Retry-After"] = str(wait)
+        message = "لقد قمت بعدة محاولات كثيرة، يرجى المحاولة مرة أخرى بعد دقيقتين."
+        response.data = {
+            "success": False,
+            "detail": message,
+            "error": message,
+            "message": message,
+            "non_field_errors": [message],
+            "code": "too_many_requests",
+            "wait": wait,
+            "locked": True,
+        }
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        response["Retry-After"] = str(wait)
+        if request is not None:
             from core.throttles import apply_manager_login_rate_limit_headers
 
             apply_manager_login_rate_limit_headers(request, response)
