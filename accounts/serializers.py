@@ -102,8 +102,11 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         """يسجّل الفشل؛ عند نفاد المحاولات تُعرض رسالة الانتظار لا كلمة المرور الخطأ."""
         from accounts.login_limit import LOCK_MESSAGE, register_failure
 
-        blocked, wait, info = register_failure()
-        if request is not None:
+        try:
+            blocked, wait, info = register_failure()
+        except Exception:
+            blocked, wait, info = False, 0, None
+        if request is not None and info:
             request._manager_login_rate_limit = info
         if blocked:
             raise LoginError(LOCK_MESSAGE, "too_many_requests", wait=wait, locked=True)
@@ -115,6 +118,11 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         refresh = self.get_token(user)
         access = str(refresh.access_token)
         payload = {
+            "success": True,
+            "ok": True,
+            "logged": True,
+            "status": "success",
+            "code": "ok",
             "access": access,
             "refresh": str(refresh),
             # مرادفات شائعة: token أو accessToken في localStorage
@@ -264,9 +272,12 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 user_agent=(request.META.get("HTTP_USER_AGENT", "")[:1000] if request else ""),
             )
 
-        from accounts.login_limit import clear_failures
+        try:
+            from accounts.login_limit import clear_failures
 
-        clear_failures()
+            clear_failures()
+        except Exception:
+            pass
         return self._token_payload(user)
 
     def _validate_special_number(self, request, special_number):
