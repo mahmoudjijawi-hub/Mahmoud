@@ -45,20 +45,23 @@ def lock_payload(wait):
 
 def current_lock():
     """هل المحاولات الخاطئة مقفلة الآن؟ دون زيادة العداد."""
-    ensure_table()
-    now = timezone.now()
-    guard = ManagerLoginGuard.objects.filter(ident=GLOBAL_IDENT).first()
-    if guard and guard.locked_until and guard.locked_until > now:
-        wait = max(int((guard.locked_until - now).total_seconds()), 1)
-        return True, wait, _info(0, guard.locked_until.timestamp())
-    remaining = LIMIT
-    reset_ts = now.timestamp() + LOCKOUT_SECONDS
-    if guard:
-        stamps = _all_stamps(guard.attempts)
-        remaining = max(LIMIT - len(stamps), 0)
-        if stamps:
-            reset_ts = stamps[0] + LOCKOUT_SECONDS
-    return False, 0, _info(remaining, reset_ts)
+    try:
+        ensure_table()
+        now = timezone.now()
+        guard = ManagerLoginGuard.objects.filter(ident=GLOBAL_IDENT).first()
+        if guard and guard.locked_until and guard.locked_until > now:
+            wait = max(int((guard.locked_until - now).total_seconds()), 1)
+            return True, wait, _info(0, guard.locked_until.timestamp())
+        remaining = LIMIT
+        reset_ts = now.timestamp() + LOCKOUT_SECONDS
+        if guard:
+            stamps = _all_stamps(guard.attempts)
+            remaining = max(LIMIT - len(stamps), 0)
+            if stamps:
+                reset_ts = stamps[0] + LOCKOUT_SECONDS
+        return False, 0, _info(remaining, reset_ts)
+    except Exception:
+        return False, 0, _info(LIMIT, timezone.now().timestamp() + LOCKOUT_SECONDS)
 
 
 def register_failure():
@@ -72,16 +75,24 @@ def clear_failures():
 
 
 def _mutate(action):
-    ensure_table()
+    try:
+        ensure_table()
+    except Exception:
+        return False, 0, _info(LIMIT, timezone.now().timestamp() + LOCKOUT_SECONDS)
     last_error = None
     for _ in range(3):
         try:
             return _mutate_once(action)
         except IntegrityError as exc:
             last_error = exc
+        except Exception:
+            return False, 0, _info(LIMIT, timezone.now().timestamp() + LOCKOUT_SECONDS)
     if last_error is not None:
-        raise last_error
-    return _mutate_once(action)
+        return False, 0, _info(LIMIT, timezone.now().timestamp() + LOCKOUT_SECONDS)
+    try:
+        return _mutate_once(action)
+    except Exception:
+        return False, 0, _info(LIMIT, timezone.now().timestamp() + LOCKOUT_SECONDS)
 
 
 def _mutate_once(action):

@@ -85,6 +85,9 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response.data["token"], response.data["access"])
         self.assertEqual(response.data["accessToken"], response.data["access"])
         self.assertEqual(response.data["user"]["role"], "manager")
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["status"], "success")
+        self.assertEqual(response.data["code"], "ok")
 
     def test_session_idle_timeout_is_one_hour_and_slides_on_activity(self):
         """الجلسة تُغلق بعد ساعة خمول وتتجدد مع كل طلب."""
@@ -263,6 +266,8 @@ class PostmanAPITests(TestCase):
         self.assertEqual(even_correct.status_code, 200, even_correct.data)
         self.assertIn("access", even_correct.data)
         self.assertEqual(even_correct.data["role"], "manager")
+        self.assertTrue(even_correct.data["success"])
+        self.assertEqual(even_correct.data["code"], "ok")
 
         special = client.post(
             "/api/token/",

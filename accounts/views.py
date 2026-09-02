@@ -35,8 +35,11 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         password_page = not _is_special_number_attempt(request)
         response = super().post(request, *args, **kwargs)
         if password_page and _login_issued_token(response):
-            _blocked, _wait, info = clear_failures()
-            request._manager_login_rate_limit = info
+            try:
+                _blocked, _wait, info = clear_failures()
+                request._manager_login_rate_limit = info
+            except Exception:
+                pass
         return response
 
     def finalize_response(self, request, response, *args, **kwargs):
