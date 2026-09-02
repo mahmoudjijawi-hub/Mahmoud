@@ -5,13 +5,9 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.exceptions import Throttled
 
-from accounts.login_limit import (
-    LOCK_MESSAGE,
-    clear_failures,
-    current_lock,
-)
+from accounts.login_limit import LOCK_MESSAGE, clear_failures
 from accounts.models import Manager
-from accounts.serializers import CustomTokenObtainPairSerializer, LoginError, ManagerSerializer
+from accounts.serializers import CustomTokenObtainPairSerializer, ManagerSerializer
 from core.permissions import IsManager
 from core.throttles import (
     SpecialNumberRateThrottle,
@@ -37,17 +33,6 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         from core.throttles import _is_special_number_attempt
 
         password_page = not _is_special_number_attempt(request)
-        if password_page:
-            blocked, wait, info = current_lock()
-            request._manager_login_rate_limit = info
-            if blocked:
-                raise LoginError(
-                    LOCK_MESSAGE,
-                    "too_many_requests",
-                    wait=max(int(wait or 120), 1),
-                    locked=True,
-                )
-
         response = super().post(request, *args, **kwargs)
         if password_page and _login_issued_token(response):
             _blocked, _wait, info = clear_failures()

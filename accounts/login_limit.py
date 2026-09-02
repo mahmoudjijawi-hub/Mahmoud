@@ -1,4 +1,4 @@
-"""قفل صفحة كلمة مرور المدير بعد ست محاولات — عدّاد واحد لكل المنصّة."""
+"""قفل محاولات كلمة مرور المدير الخاطئة — الدخول الصحيح يبقى مسموحاً."""
 from datetime import timedelta
 
 from django.db import IntegrityError, connection, transaction
@@ -8,7 +8,6 @@ from django.utils.dateparse import parse_datetime
 from accounts.models import ManagerLoginGuard
 
 LIMIT = 5
-WINDOW_SECONDS = 60
 LOCKOUT_SECONDS = 120
 GLOBAL_IDENT = "manager-password"
 LOCK_MESSAGE = "لقد قمت بعدة محاولات كثيرة، يرجى المحاولة مرة أخرى بعد دقيقتين."
@@ -45,7 +44,7 @@ def lock_payload(wait):
 
 
 def current_lock():
-    """هل الصفحة مقفلة الآن؟ دون زيادة العداد."""
+    """هل المحاولات الخاطئة مقفلة الآن؟ دون زيادة العداد."""
     ensure_table()
     now = timezone.now()
     guard = ManagerLoginGuard.objects.filter(ident=GLOBAL_IDENT).first()
@@ -53,22 +52,22 @@ def current_lock():
         wait = max(int((guard.locked_until - now).total_seconds()), 1)
         return True, wait, _info(0, guard.locked_until.timestamp())
     remaining = LIMIT
-    reset_ts = now.timestamp() + WINDOW_SECONDS
+    reset_ts = now.timestamp() + LOCKOUT_SECONDS
     if guard:
-        stamps = _fresh_stamps(guard.attempts, now.timestamp())
+        stamps = _all_stamps(guard.attempts)
         remaining = max(LIMIT - len(stamps), 0)
         if stamps:
-            reset_ts = stamps[0] + WINDOW_SECONDS
+            reset_ts = stamps[0] + LOCKOUT_SECONDS
     return False, 0, _info(remaining, reset_ts)
 
 
 def register_failure():
-    """يسجّل محاولة فاشلة. خامس فشل يقفل دقيقتين ويعيد رسالة الانتظار."""
+    """يسجّل محاولة فاشلة. خامس غلط يقفل دقيقتين (الغلط فقط، لا الدخول الصحيح)."""
     return _mutate("fail")
 
 
 def clear_failures():
-    """دخول ناجح يصفر العداد."""
+    """دخول ناجح يصفر العداد ويفك القفل."""
     return _mutate("clear")
 
 
@@ -97,15 +96,18 @@ def _mutate_once(action):
             guard.attempts = []
             guard.locked_until = None
             guard.save(update_fields=["attempts", "locked_until"])
-            return False, 0, _info(LIMIT, now_ts + WINDOW_SECONDS)
+            return False, 0, _info(LIMIT, now_ts + LOCKOUT_SECONDS)
+
+        if guard.locked_until and guard.locked_until <= now:
+            guard.attempts = []
+            guard.locked_until = None
 
         if guard.locked_until and guard.locked_until > now:
             wait = max(int((guard.locked_until - now).total_seconds()), 1)
             return True, wait, _info(0, guard.locked_until.timestamp())
 
-        stamps = _fresh_stamps(guard.attempts, now_ts)
+        stamps = _all_stamps(guard.attempts)
         stamps.append(now_ts)
-        # خامس فشل يقفّل فوراً ويعيد رسالة الدقيقتين بدل «اسم/كلمة خطأ».
         if len(stamps) >= LIMIT:
             locked_until = now + timedelta(seconds=LOCKOUT_SECONDS)
             guard.attempts = stamps
@@ -117,15 +119,14 @@ def _mutate_once(action):
         guard.locked_until = None
         guard.save(update_fields=["attempts", "locked_until"])
         remaining = LIMIT - len(stamps)
-        return False, 0, _info(remaining, stamps[0] + WINDOW_SECONDS)
+        return False, 0, _info(remaining, stamps[0] + LOCKOUT_SECONDS)
 
 
-def _fresh_stamps(raw, now_ts):
-    cutoff_ts = now_ts - WINDOW_SECONDS
+def _all_stamps(raw):
     stamps = []
     for stamp in raw or []:
         value = _stamp_ts(stamp)
-        if value is not None and value > cutoff_ts:
+        if value is not None:
             stamps.append(value)
     return stamps
 
