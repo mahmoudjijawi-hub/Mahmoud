@@ -252,12 +252,17 @@ class PostmanAPITests(TestCase):
         blocked = client.post("/api/token/", payload, format="json")
         self._assert_login_locked(blocked)
 
+        still_wrong = client.post("/api/token/", payload, format="json")
+        self._assert_login_locked(still_wrong)
+
         even_correct = client.post(
             "/api/token/",
             {"username": "ammar", "password": "ammar12345ammar"},
             format="json",
         )
-        self._assert_login_locked(even_correct)
+        self.assertEqual(even_correct.status_code, 200, even_correct.data)
+        self.assertIn("access", even_correct.data)
+        self.assertEqual(even_correct.data["role"], "manager")
 
         special = client.post(
             "/api/token/",

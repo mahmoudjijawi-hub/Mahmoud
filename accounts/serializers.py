@@ -233,15 +233,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         if special_number and not (username and password):
             return self._validate_special_number(request, special_number)
 
-        # مسار اسم المستخدم وكلمة المرور (المدير) — مطابق للـ Collection
-        from accounts.login_limit import LOCK_MESSAGE, current_lock
-
-        locked, wait, info = current_lock()
-        if request is not None:
-            request._manager_login_rate_limit = info
-        if locked:
-            raise LoginError(LOCK_MESSAGE, "too_many_requests", wait=wait, locked=True)
-
+        # مسار اسم المستخدم وكلمة المرور (المدير) — الدخول الصحيح أولاً، والقفل للغلط فقط
         if not username or not password:
             auth_logger.info("failed_login reason=missing_credentials")
             self._raise_failed_login(
@@ -272,6 +264,9 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 user_agent=(request.META.get("HTTP_USER_AGENT", "")[:1000] if request else ""),
             )
 
+        from accounts.login_limit import clear_failures
+
+        clear_failures()
         return self._token_payload(user)
 
     def _validate_special_number(self, request, special_number):
