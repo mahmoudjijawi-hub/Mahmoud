@@ -23,6 +23,9 @@ class PostmanAPITests(TestCase):
     def setUp(self):
         # تفريغ الذاكرة المؤقتة حتى لا يتجمّع حد الـ throttling بين الاختبارات
         cache.clear()
+        from accounts.models import ManagerLoginGuard
+
+        ManagerLoginGuard.objects.all().delete()
         # اشتراك ساري حتى لا يقطع الوسطاء الاختبارات
         Subscription.objects.create(expiry_date=date.today() + timedelta(days=365), is_active=True)
         # مدير مطابق لحقول POST managers مع اسم مستخدم الـ Collection
@@ -215,20 +218,27 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response.data["role"], "manager")
 
     def test_manager_password_login_rate_limit_is_five_per_minute(self):
-        """شاشة اسم المدير وكلمة المرور: 5 محاولات/دقيقة ثم 429 وانتظار دقيقتين."""
+        """شاشة اسم المدير وكلمة المرور: 5 محاولات/دقيقة ثم قفل دقيقتين."""
         cache.clear()
+        from accounts.models import ManagerLoginGuard
+
+        ManagerLoginGuard.objects.all().delete()
         client = APIClient()
         payload = {"username": "ammar", "password": "wrong-password"}
         for _ in range(5):
             response = client.post("/api/token/", payload, format="json")
             self.assertEqual(response.status_code, 400, response.data)
+            self.assertEqual(response.data["code"], "invalid_credentials")
             self.assertEqual(response["X-RateLimit-Limit"], "5")
             self.assertTrue(response.has_header("X-RateLimit-Remaining"))
             self.assertTrue(response.has_header("X-RateLimit-Reset"))
 
         blocked = client.post("/api/token/", payload, format="json")
-        self.assertEqual(blocked.status_code, 429, blocked.data)
+        self.assertEqual(blocked.status_code, 400, blocked.data)
         self.assertEqual(blocked.data["code"], "too_many_requests")
+        self.assertEqual(blocked.data["error"], blocked.data["detail"])
+        self.assertEqual(blocked.data["message"], blocked.data["detail"])
+        self.assertEqual(blocked.data["non_field_errors"], [blocked.data["detail"]])
         self.assertIn("دقيقتين", blocked.data["detail"])
         self.assertEqual(blocked.data["wait"], 120)
         self.assertEqual(blocked["Retry-After"], "120")
@@ -241,7 +251,8 @@ class PostmanAPITests(TestCase):
             {"username": "ammar", "password": "ammar12345ammar"},
             format="json",
         )
-        self.assertEqual(even_correct.status_code, 429, even_correct.data)
+        self.assertEqual(even_correct.status_code, 400, even_correct.data)
+        self.assertEqual(even_correct.data["code"], "too_many_requests")
 
         special = client.post(
             "/api/token/",
@@ -250,6 +261,31 @@ class PostmanAPITests(TestCase):
         )
         self.assertEqual(special.status_code, 200, special.data)
         self.assertTrue(special.data["requires_password"])
+
+    def test_manager_login_lock_counts_wrong_usernames_together(self):
+        """الاسم الخطأ لا يصفر العداد: ست محاولات من نفس الجهاز تقفل دقيقتين."""
+        from accounts.models import ManagerLoginGuard
+
+        ManagerLoginGuard.objects.all().delete()
+        client = APIClient()
+        for index in range(5):
+            response = client.post(
+                "/api/login/",
+                {"username": f"wrong-name-{index}", "password": "مؤور"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, 400, response.data)
+            self.assertEqual(response.data["code"], "invalid_credentials")
+
+        locked = client.post(
+            "/api/login/",
+            {"name": "اسم غلط", "password": "مؤور"},
+            format="json",
+        )
+        self.assertEqual(locked.status_code, 400, locked.data)
+        self.assertEqual(locked.data["code"], "too_many_requests")
+        self.assertIn("دقيقتين", locked.data["detail"])
+        self.assertIn("دقيقتين", locked.data["error"])
 
     def test_migration_sets_usable_admin_password(self):
         """بعد الهجرات يجب أن تنجح بيانات المدير الافتراضية من الإعدادات."""

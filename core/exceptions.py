@@ -26,9 +26,13 @@ def api_exception_handler(exc, context):
         wait = int(getattr(exc, "wait", None) or 120)
         request = context.get("request") if context else None
         if request is not None and getattr(request, "_manager_login_rate_limit", None):
+            message = "لقد قمت بعدة محاولات كثيرة، يرجى المحاولة مرة أخرى بعد دقيقتين."
             response.data = {
                 "success": False,
-                "detail": "لقد قمت بعدة محاولات كثيرة، يرجى المحاولة مرة أخرى بعد دقيقتين.",
+                "detail": message,
+                "error": message,
+                "message": message,
+                "non_field_errors": [message],
                 "code": "too_many_requests",
                 "wait": wait,
             }

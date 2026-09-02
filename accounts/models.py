@@ -119,3 +119,18 @@ class LoginLog(models.Model):
 
     def __str__(self):
         return f"{self.user.username} @ {self.created_at}"
+
+
+class ManagerLoginGuard(models.Model):
+    """عدّاد محاولات صفحة اسم المدير وكلمة المرور — مشترك بين كل عمال Render."""
+
+    ident = models.CharField(max_length=190, primary_key=True)
+    attempts = models.JSONField(default=list, blank=True)
+    locked_until = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "قفل دخول المدير"
+        verbose_name_plural = "أقفال دخول المدير"
+
+    def __str__(self):
+        return self.ident

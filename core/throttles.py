@@ -83,26 +83,45 @@ class ManagerPasswordLoginThrottle(BaseThrottle):
         }
 
 
+def _first_field(data, *keys):
+    if not hasattr(data, "get"):
+        return ""
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""):
+            return str(value).strip()
+    try:
+        lowered = {str(k).lower(): v for k, v in data.items()}
+    except Exception:
+        return ""
+    for key in keys:
+        value = lowered.get(str(key).lower())
+        if value not in (None, ""):
+            return str(value).strip()
+    return ""
+
+
 def _is_manager_password_attempt(request):
     """فقط جسم اسم المستخدم + كلمة المرور، وليس الرقم المميز."""
     try:
         data = request.data
     except Exception:
         return False
-    if not hasattr(data, "get"):
-        return False
-    username = str(
-        data.get("username")
-        or data.get("userName")
-        or data.get("UserName")
-        or data.get("user_name")
-        or data.get("login")
-        or ""
-    ).strip()
-    password = str(
-        data.get("password") or data.get("Password") or data.get("pass") or data.get("passwd") or ""
-    ).strip()
-    return bool(username and password)
+    username = _first_field(
+        data,
+        "username",
+        "userName",
+        "UserName",
+        "user_name",
+        "login",
+        "user",
+        "User",
+        "name",
+        "Name",
+        "email",
+    )
+    password = _first_field(data, "password", "Password", "pass", "passwd", "pwd")
+    return bool(username or password) and not _is_special_number_attempt(request)
 
 
 def _is_special_number_attempt(request):

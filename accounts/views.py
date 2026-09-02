@@ -10,7 +10,6 @@ from accounts.serializers import CustomTokenObtainPairSerializer, ManagerSeriali
 from core.permissions import IsManager
 from core.throttles import (
     SpecialNumberRateThrottle,
-    ManagerPasswordLoginThrottle,
     apply_manager_login_rate_limit_headers,
 )
 
@@ -20,7 +19,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
     permission_classes = (AllowAny,)
     serializer_class = CustomTokenObtainPairSerializer
-    throttle_classes = (ManagerPasswordLoginThrottle, SpecialNumberRateThrottle)
+    throttle_classes = (SpecialNumberRateThrottle,)
 
     def post(self, request, *args, **kwargs):
         # قبل أي محاولة دخول: ضمان أن حساب المدير وكلمة مروره جاهزان من الإعدادات
@@ -30,6 +29,17 @@ class CustomTokenObtainPairView(TokenObtainPairView):
             ensure_admin_credentials()
         except Exception:
             pass
+        from accounts.login_limit import lock_payload, register_manager_password_attempt
+        from core.throttles import _is_manager_password_attempt
+
+        if _is_manager_password_attempt(request):
+            blocked, wait, info = register_manager_password_attempt(request)
+            request._manager_login_rate_limit = info
+            if blocked:
+                # 400 وليس 429 فقط: صفحة كلمة المرور تعرض أخطاء الدخول عبر catch الـ 400.
+                response = Response(lock_payload(wait), status=status.HTTP_400_BAD_REQUEST)
+                response["Retry-After"] = str(wait)
+                return apply_manager_login_rate_limit_headers(request, response)
         return super().post(request, *args, **kwargs)
 
     def finalize_response(self, request, response, *args, **kwargs):
