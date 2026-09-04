@@ -16,6 +16,11 @@ class AdminLoginLockoutTests(TestCase):
         cache.clear()
         from datetime import date, timedelta
 
+        import core.admin_login_limit as lockmod
+
+        lockmod._prefer_db = False
+        lockmod._cache_table_ready = False
+
         Subscription.objects.create(expiry_date=date.today() + timedelta(days=365), is_active=True)
         self.login_url = "/" + settings.ADMIN_URL + "login/"
         self.staff = User.objects.create_superuser(
@@ -152,3 +157,48 @@ class AdminLoginLockoutTests(TestCase):
                 format="json",
             )
             self.assertNotEqual(response.status_code, 429)
+
+    def test_deploy_scripts_run_migrate_and_createcachetable(self):
+        from pathlib import Path
+
+        root = Path(settings.BASE_DIR)
+        entrypoint = (root / "entrypoint.sh").read_text(encoding="utf-8")
+        build = (root / "build.sh").read_text(encoding="utf-8")
+        procfile = (root / "Procfile").read_text(encoding="utf-8")
+        for text in (entrypoint, build, procfile):
+            self.assertIn("migrate", text)
+            self.assertIn("createcachetable", text)
+
+    def test_lockout_uses_database_when_cache_table_missing(self):
+        from unittest.mock import patch
+
+        from django.db.utils import ProgrammingError
+
+        import core.admin_login_limit as lockmod
+        from accounts.models import ManagerLoginGuard
+
+        ManagerLoginGuard.objects.all().delete()
+        lockmod._prefer_db = False
+
+        def boom(*args, **kwargs):
+            raise ProgrammingError("relation django_cache does not exist")
+
+        with (
+            patch.object(cache, "get", side_effect=boom),
+            patch.object(cache, "set", side_effect=boom),
+            patch.object(cache, "incr", side_effect=boom),
+            patch.object(cache, "add", side_effect=boom),
+            patch.object(cache, "delete", side_effect=boom),
+            patch.object(cache, "touch", side_effect=boom),
+            patch.object(lockmod, "ensure_cache_table", return_value=False),
+        ):
+            for _ in range(4):
+                response = self._post_login("cache-down", "wrong")
+                self.assertEqual(response.status_code, 200, response.content)
+            blocked = self._post_login("cache-down", "wrong")
+            self.assertEqual(blocked.status_code, 429)
+            self.assertContains(blocked, LOCK_MESSAGE, status_code=429)
+            self.assertEqual(blocked["X-RateLimit-Remaining"], "0")
+            still_blocked = self._post_login("staffadmin", "StaffPass123!")
+            self.assertEqual(still_blocked.status_code, 429)
+        lockmod._prefer_db = False

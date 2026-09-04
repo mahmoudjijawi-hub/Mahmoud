@@ -8,3 +8,9 @@ from django.core.wsgi import get_wsgi_application
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 # إنشاء كائن التطبيق الذي يقرأه الخادم
 application = get_wsgi_application()
+try:
+    from core.boot import prepare_runtime
+
+    prepare_runtime()
+except Exception:
+    pass

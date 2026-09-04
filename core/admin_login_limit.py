@@ -1,17 +1,27 @@
-"""قفل دخول المدير (اسم مستخدم + كلمة مرور) بعد خمس محاولات فاشلة — عبر DatabaseCache."""
+"""قفل دخول المدير (اسم مستخدم + كلمة مرور) بعد خمس محاولات فاشلة.
+
+العداد يُحفظ في DatabaseCache، وإن فشل الجدول يُستخدم جدول ManagerLoginGuard
+حتى يبقى القفل مشتركاً بين عمال Render.
+"""
 import hashlib
 import json
+import logging
 import re
 import time
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import connection, transaction
+from django.utils import timezone
 
 LIMIT = 5
 LOCKOUT_SECONDS = 120
 FAIL_TTL = 60 * 60 * 24
 LOCK_MESSAGE = "تم تجاوز عدد المحاولات المسموح بها (5 محاولات). تم حظر المحاولة لمدة دقيقتين."
 CACHE_TABLE = "django_cache"
+
+logger = logging.getLogger("core.admin_login_limit")
 
 API_ADMIN_LOGIN_PATHS = {
     "/api/token/",
@@ -26,15 +36,44 @@ STUDENT_TEACHER_LOGIN_PATHS = {
     "/api/student_login/",
 }
 
+_cache_table_ready = False
+_prefer_db = False
+
 
 def ensure_cache_table():
     """ينشئ جدول django_cache إن لم يوجد — ضروري على Render بعدة عمال."""
+    global _cache_table_ready
+    if _cache_table_ready:
+        return True
     try:
         from django.core.management import call_command
 
         call_command("createcachetable", verbosity=0)
+        _cache_table_ready = True
+        return True
     except Exception:
-        pass
+        logger.exception("createcachetable command failed")
+    try:
+        tables = set(connection.introspection.table_names())
+        if CACHE_TABLE in tables:
+            _cache_table_ready = True
+            return True
+        qn = connection.ops.quote_name
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "CREATE TABLE %s (%s varchar(255) NOT NULL PRIMARY KEY, "
+                "%s text NOT NULL, %s timestamp NOT NULL)"
+                % (qn(CACHE_TABLE), qn("cache_key"), qn("value"), qn("expires"))
+            )
+            cursor.execute(
+                "CREATE INDEX %s ON %s (%s)"
+                % (qn("django_cache_expires"), qn(CACHE_TABLE), qn("expires"))
+            )
+        _cache_table_ready = True
+        return True
+    except Exception:
+        logger.exception("manual django_cache CREATE TABLE failed")
+        return False
 
 
 def client_ip(request):
@@ -197,84 +236,297 @@ def _lock_wait(lock_until):
     return max(int(lock_until - now), 1)
 
 
+def _db_ident(key):
+    text = str(key or "")
+    if len(text) <= 190:
+        return text
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:190]
+
+
+def _ensure_guard_table():
+    try:
+        from accounts.login_limit import ensure_table
+
+        ensure_table()
+    except Exception:
+        logger.exception("ManagerLoginGuard table ensure failed")
+
+
+def _db_get(key):
+    if not key:
+        return None
+    _ensure_guard_table()
+    from accounts.models import ManagerLoginGuard
+
+    row = ManagerLoginGuard.objects.filter(ident=_db_ident(key)).first()
+    if row is None:
+        return None
+    data = row.attempts if isinstance(row.attempts, dict) else None
+    if not data:
+        return None
+    exp = data.get("exp")
+    if exp and float(exp) < time.time():
+        return None
+    return data.get("value")
+
+
+def _db_set(key, value, timeout):
+    if not key:
+        return
+    _ensure_guard_table()
+    from accounts.models import ManagerLoginGuard
+
+    payload = {"value": value, "exp": time.time() + int(timeout or FAIL_TTL)}
+    locked_until = timezone.now() + timedelta(seconds=int(timeout or FAIL_TTL))
+    ManagerLoginGuard.objects.update_or_create(
+        ident=_db_ident(key),
+        defaults={"attempts": payload, "locked_until": locked_until},
+    )
+
+
+def _db_delete(key):
+    if not key:
+        return
+    _ensure_guard_table()
+    from accounts.models import ManagerLoginGuard
+
+    ManagerLoginGuard.objects.filter(ident=_db_ident(key)).delete()
+
+
+def _db_incr(key, timeout=FAIL_TTL):
+    if not key:
+        return 0
+    _ensure_guard_table()
+    from accounts.models import ManagerLoginGuard
+
+    ident = _db_ident(key)
+    with transaction.atomic():
+        row, created = ManagerLoginGuard.objects.select_for_update().get_or_create(
+            ident=ident,
+            defaults={
+                "attempts": {"value": 1, "exp": time.time() + int(timeout)},
+                "locked_until": timezone.now() + timedelta(seconds=int(timeout)),
+            },
+        )
+        if created:
+            return 1
+        data = row.attempts if isinstance(row.attempts, dict) else {}
+        exp = data.get("exp")
+        current = 0
+        if exp and float(exp) < time.time():
+            current = 0
+        else:
+            try:
+                current = int(data.get("value") or 0)
+            except (TypeError, ValueError):
+                current = 0
+        value = current + 1
+        row.attempts = {"value": value, "exp": time.time() + int(timeout)}
+        row.locked_until = timezone.now() + timedelta(seconds=int(timeout))
+        row.save(update_fields=["attempts", "locked_until"])
+        return value
+
+
+def _cache_get(key):
+    return cache.get(key)
+
+
+def _cache_set(key, value, timeout):
+    cache.set(key, value, timeout=timeout)
+
+
+def _cache_delete(key):
+    cache.delete(key)
+
+
+def _cache_incr(key, timeout=FAIL_TTL):
+    try:
+        value = int(cache.incr(key))
+        try:
+            cache.touch(key, timeout)
+        except Exception:
+            pass
+        return value
+    except ValueError:
+        if cache.add(key, 1, timeout=timeout):
+            return 1
+        try:
+            return int(cache.incr(key))
+        except ValueError:
+            cache.set(key, 1, timeout=timeout)
+            return 1
+
+
+def kv_get(key):
+    if not key:
+        return None
+    if not _prefer_db:
+        try:
+            return _cache_get(key)
+        except Exception as exc:
+            logger.warning("cache get failed; falling back to database: %s", exc)
+            ensure_cache_table()
+            try:
+                return _cache_get(key)
+            except Exception:
+                _mark_db_fallback()
+    try:
+        return _db_get(key)
+    except Exception:
+        logger.exception("db fallback get failed")
+        return None
+
+
+def kv_set(key, value, timeout):
+    if not key:
+        return
+    if not _prefer_db:
+        try:
+            _cache_set(key, value, timeout)
+            return
+        except Exception as exc:
+            logger.warning("cache set failed; falling back to database: %s", exc)
+            ensure_cache_table()
+            try:
+                _cache_set(key, value, timeout)
+                return
+            except Exception:
+                _mark_db_fallback()
+    try:
+        _db_set(key, value, timeout)
+    except Exception:
+        logger.exception("db fallback set failed")
+
+
+def kv_delete(key):
+    if not key:
+        return
+    if not _prefer_db:
+        try:
+            _cache_delete(key)
+        except Exception:
+            ensure_cache_table()
+            try:
+                _cache_delete(key)
+            except Exception:
+                _mark_db_fallback()
+    try:
+        _db_delete(key)
+    except Exception:
+        logger.exception("db fallback delete failed")
+
+
+def kv_incr(key, timeout=FAIL_TTL):
+    if not key:
+        return 0
+    if not _prefer_db:
+        try:
+            return _cache_incr(key, timeout)
+        except Exception as exc:
+            logger.warning("cache incr failed; falling back to database: %s", exc)
+            ensure_cache_table()
+            try:
+                return _cache_incr(key, timeout)
+            except Exception:
+                _mark_db_fallback()
+    try:
+        return _db_incr(key, timeout)
+    except Exception:
+        logger.exception("db fallback incr failed")
+        return 0
+
+
+def _mark_db_fallback():
+    global _prefer_db
+    _prefer_db = True
+
+
 def current_state(request):
+    try:
+        return _current_state(request)
+    except Exception:
+        logger.exception("current_state failed; retrying via db fallback")
+        _mark_db_fallback()
+        ensure_cache_table()
+        try:
+            return _current_state(request)
+        except Exception:
+            logger.exception("current_state fallback failed")
+            return False, 0, LIMIT
+
+
+def _current_state(request):
     keys = cache_keys(request)
     waits = []
     for lock_name in ("lock", "user_lock"):
         lock_key = keys.get(lock_name)
         if not lock_key:
             continue
-        wait = _lock_wait(cache.get(lock_key))
+        wait = _lock_wait(kv_get(lock_key))
         if wait:
             waits.append(wait)
         else:
-            expired = cache.get(lock_key)
+            expired = kv_get(lock_key)
             if expired is not None:
-                cache.delete(lock_key)
+                kv_delete(lock_key)
     if waits:
         return True, max(waits), 0
 
-    fails_ip = int(cache.get(keys["fails"]) or 0)
-    fails_user = int(cache.get(keys["user_fails"]) or 0) if keys.get("user_fails") else 0
+    fails_ip = int(kv_get(keys["fails"]) or 0)
+    fails_user = int(kv_get(keys["user_fails"]) or 0) if keys.get("user_fails") else 0
     if fails_ip >= LIMIT:
-        cache.delete(keys["fails"])
+        kv_delete(keys["fails"])
         fails_ip = 0
     if keys.get("user_fails") and fails_user >= LIMIT:
-        cache.delete(keys["user_fails"])
+        kv_delete(keys["user_fails"])
         fails_user = 0
     remaining = max(LIMIT - max(fails_ip, fails_user), 0)
     return False, 0, remaining
 
 
-def _incr_fail(key):
-    if not key:
-        return 0
-    try:
-        return int(cache.incr(key))
-    except ValueError:
-        if cache.add(key, 1, timeout=FAIL_TTL):
-            return 1
-        try:
-            return int(cache.incr(key))
-        except ValueError:
-            cache.set(key, 1, timeout=FAIL_TTL)
-            return 1
-
-
 def register_failure(request):
+    try:
+        return _register_failure(request)
+    except Exception:
+        logger.exception("register_failure failed; retrying via db fallback")
+        _mark_db_fallback()
+        ensure_cache_table()
+        try:
+            return _register_failure(request)
+        except Exception:
+            logger.exception("register_failure fallback failed")
+            return False, 0, LIMIT
+
+
+def _register_failure(request):
     keys = cache_keys(request)
-    blocked, wait, remaining = current_state(request)
+    blocked, wait, remaining = _current_state(request)
     if blocked:
         return True, wait, 0
-    fails_ip = _incr_fail(keys["fails"])
-    try:
-        cache.touch(keys["fails"], FAIL_TTL)
-    except Exception:
-        pass
-    fails_user = _incr_fail(keys["user_fails"]) if keys.get("user_fails") else 0
-    if keys.get("user_fails"):
-        try:
-            cache.touch(keys["user_fails"], FAIL_TTL)
-        except Exception:
-            pass
-    cache.set(keys["combo"], max(fails_ip, fails_user), timeout=FAIL_TTL)
+    fails_ip = kv_incr(keys["fails"])
+    fails_user = kv_incr(keys["user_fails"]) if keys.get("user_fails") else 0
+    kv_set(keys["combo"], max(fails_ip, fails_user), FAIL_TTL)
     if fails_ip >= LIMIT or fails_user >= LIMIT:
         lock_until = time.time() + LOCKOUT_SECONDS
-        cache.set(keys["lock"], lock_until, timeout=LOCKOUT_SECONDS)
+        kv_set(keys["lock"], lock_until, LOCKOUT_SECONDS)
         if keys.get("user_lock"):
-            cache.set(keys["user_lock"], lock_until, timeout=LOCKOUT_SECONDS)
+            kv_set(keys["user_lock"], lock_until, LOCKOUT_SECONDS)
         return True, LOCKOUT_SECONDS, 0
     remaining = max(LIMIT - max(fails_ip, fails_user), 0)
     return False, 0, remaining
 
 
 def register_success(request):
-    keys = cache_keys(request)
-    for name in ("fails", "lock", "combo", "user_fails", "user_lock"):
-        key = keys.get(name)
-        if key:
-            cache.delete(key)
-    return 0, LIMIT
+    try:
+        keys = cache_keys(request)
+        for name in ("fails", "lock", "combo", "user_fails", "user_lock"):
+            key = keys.get(name)
+            if key:
+                kv_delete(key)
+        return 0, LIMIT
+    except Exception:
+        logger.exception("register_success failed")
+        return 0, LIMIT
 
 
 def rate_limit_headers(remaining, wait=0):
