@@ -42,6 +42,7 @@ urlpatterns = [
     # POST /api/token/ — مطابق لاسم الطلب token في الـ Collection
     path("api/token/", CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/login/", CustomTokenObtainPairView.as_view(), name="token_login_alias"),
+    path("api/admin/login/", CustomTokenObtainPairView.as_view(), name="admin_token_login"),
     # POST /api/token/refresh/ — مطابق لاسم الطلب refresh
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     # شاشة الرقم المميز: POST /api/student-login/

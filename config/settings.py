@@ -94,7 +94,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     # ربط request.user
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    # قفل دخول لوحة الإدارة وواجهة الـ API بعد 5 محاولات فاشلة
+    # قفل دخول المدير (اسم مستخدم + كلمة مرور) بعد 5 محاولات فاشلة — عبر قاعدة البيانات
     "core.middleware.AdminLoginLockoutMiddleware",
     # فحص اشتراك المعهد قبل أي مسار محمي
     "core.middleware.SubscriptionMiddleware",
@@ -251,14 +251,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # مسار لوحة الإدارة العشوائي من البيئة (بدون / في البداية أو النهاية)
 ADMIN_URL = env("ADMIN_URL", default="secret-admin").strip("/") + "/"
 
-# ذاكرة مؤقتة لقفل دخول لوحة الإدارة — LocMem افتراضياً، أو Redis/Database عبر البيئة
+# ذاكرة مؤقتة مشتركة بين عمال Render — DatabaseCache وليس LocMem
+# الجدول يُنشأ بالهجرة core.0002 أو: python manage.py createcachetable
 CACHES = {
     "default": {
-        "BACKEND": env(
-            "CACHE_BACKEND",
-            default="django.core.cache.backends.locmem.LocMemCache",
-        ),
-        "LOCATION": env("CACHE_LOCATION", default="admin-login-lockout"),
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "django_cache",
         "TIMEOUT": 86400,
         "OPTIONS": {"MAX_ENTRIES": 10000},
     }
