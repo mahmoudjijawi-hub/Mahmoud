@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import Manager
 from academics.models import Teacher, Student
+from core.admin_login_limit import LOCK_MESSAGE, LIMIT
 from core.models import Subscription
 from grades.models import Exam
 from payments.models import Payment, PaymentTransaction
@@ -220,20 +221,29 @@ class PostmanAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["role"], "manager")
 
+    def _login_body(self, response):
+        data = getattr(response, "data", None)
+        if isinstance(data, dict):
+            return data
+        return response.json()
+
     def _assert_login_locked(self, response):
-        self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data["code"], "too_many_requests")
-        self.assertTrue(response.data["locked"])
-        self.assertNotIn("access", response.data)
-        self.assertEqual(response.data["error"], response.data["detail"])
-        self.assertEqual(response.data["message"], response.data["detail"])
-        self.assertEqual(response.data["non_field_errors"], [response.data["detail"]])
-        self.assertIn("دقيقتين", response.data["detail"])
-        self.assertGreaterEqual(response.data["wait"], 1)
-        self.assertLessEqual(response.data["wait"], 120)
-        self.assertEqual(response["Retry-After"], str(response.data["wait"]))
-        self.assertEqual(response["X-RateLimit-Limit"], "5")
+        payload = self._login_body(response)
+        self.assertEqual(response.status_code, 429, payload)
+        self.assertEqual(payload["error"], LOCK_MESSAGE)
+        self.assertEqual(payload["detail"], LOCK_MESSAGE)
+        self.assertEqual(payload["message"], LOCK_MESSAGE)
+        self.assertEqual(payload["code"], "too_many_requests")
+        self.assertTrue(payload["locked"])
+        self.assertNotIn("access", payload)
+        self.assertEqual(payload["non_field_errors"], [LOCK_MESSAGE])
+        self.assertGreaterEqual(payload["wait"], 1)
+        self.assertLessEqual(payload["wait"], 120)
+        self.assertEqual(payload["retry_after"], payload["wait"])
+        self.assertEqual(response["Retry-After"], str(payload["wait"]))
+        self.assertEqual(response["X-RateLimit-Limit"], str(LIMIT))
         self.assertEqual(response["X-RateLimit-Remaining"], "0")
+        self.assertGreaterEqual(int(response["X-RateLimit-Reset"]), 1)
 
     def test_manager_password_login_rate_limit_is_five_per_minute(self):
         """أربع محاولات غلط تُظهر كلمة خطأ؛ الخامسة رسالة الانتظار دقيقتين."""
@@ -263,11 +273,7 @@ class PostmanAPITests(TestCase):
             {"username": "ammar", "password": "ammar12345ammar"},
             format="json",
         )
-        self.assertEqual(even_correct.status_code, 200, even_correct.data)
-        self.assertIn("access", even_correct.data)
-        self.assertEqual(even_correct.data["role"], "manager")
-        self.assertTrue(even_correct.data["success"])
-        self.assertEqual(even_correct.data["code"], "ok")
+        self._assert_login_locked(even_correct)
 
         special = client.post(
             "/api/token/",
@@ -278,18 +284,25 @@ class PostmanAPITests(TestCase):
         self.assertTrue(special.data["requires_password"])
         self.assertNotEqual(special.data.get("code"), "too_many_requests")
 
-    def test_manager_login_lock_counts_wrong_usernames_together(self):
-        """الاسم الخطأ وعنوان IP المختلف لا يصفران العداد."""
-        from accounts.models import ManagerLoginGuard
+        cache.clear()
+        unlocked = client.post(
+            "/api/token/",
+            {"username": "ammar", "password": "ammar12345ammar"},
+            format="json",
+        )
+        self.assertEqual(unlocked.status_code, 200, unlocked.data)
+        self.assertIn("access", unlocked.data)
 
-        ManagerLoginGuard.objects.all().delete()
+    def test_manager_login_lock_counts_wrong_usernames_together(self):
+        """الاسم الخطأ لا يصفر العداد طالما عنوان IP واحد."""
+        cache.clear()
         client = APIClient()
         for index in range(4):
             response = client.post(
                 "/api/login/",
                 {"username": f"wrong-name-{index}", "password": "مؤور"},
                 format="json",
-                HTTP_X_FORWARDED_FOR=f"203.0.113.{index}, 10.0.0.1",
+                HTTP_X_FORWARDED_FOR="203.0.113.40, 10.0.0.1",
             )
             self.assertEqual(response.status_code, 400, response.data)
             self.assertEqual(response.data["code"], "invalid_credentials")
@@ -298,7 +311,7 @@ class PostmanAPITests(TestCase):
             "/api/login/",
             {"name": "اسم غلط", "password": "مؤور"},
             format="json",
-            HTTP_X_FORWARDED_FOR="198.51.100.10, 10.0.0.2",
+            HTTP_X_FORWARDED_FOR="203.0.113.40, 10.0.0.1",
         )
         self._assert_login_locked(locked)
 

@@ -99,17 +99,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         raise LoginError(message, code)
 
     def _raise_failed_login(self, request, message, code):
-        """يسجّل الفشل؛ عند نفاد المحاولات تُعرض رسالة الانتظار لا كلمة المرور الخطأ."""
-        from accounts.login_limit import LOCK_MESSAGE, register_failure
-
-        try:
-            blocked, wait, info = register_failure()
-        except Exception:
-            blocked, wait, info = False, 0, None
-        if request is not None and info:
-            request._manager_login_rate_limit = info
-        if blocked:
-            raise LoginError(LOCK_MESSAGE, "too_many_requests", wait=wait, locked=True)
+        """خطأ دخول عادي؛ القفل بعد 5 محاولات تتولاه وسيط الـ cache."""
         raise LoginError(message, code)
 
     def _token_payload(self, user):
@@ -241,7 +231,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         if special_number and not (username and password):
             return self._validate_special_number(request, special_number)
 
-        # مسار اسم المستخدم وكلمة المرور (المدير) — الدخول الصحيح أولاً، والقفل للغلط فقط
+        # مسار اسم المستخدم وكلمة المرور (المدير)؛ القفل بعد 5 فشل تتولاه وسيط الـ cache
         if not username or not password:
             auth_logger.info("failed_login reason=missing_credentials")
             self._raise_failed_login(
@@ -272,12 +262,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 user_agent=(request.META.get("HTTP_USER_AGENT", "")[:1000] if request else ""),
             )
 
-        try:
-            from accounts.login_limit import clear_failures
-
-            clear_failures()
-        except Exception:
-            pass
         return self._token_payload(user)
 
     def _validate_special_number(self, request, special_number):

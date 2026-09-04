@@ -90,16 +90,37 @@ class AdminLoginLockoutTests(TestCase):
         self.assertEqual(blocked.status_code, 429)
         self.assertEqual(blocked["Content-Type"].split(";")[0], "application/json")
         payload = blocked.json()
+        self.assertEqual(payload["error"], LOCK_MESSAGE)
         self.assertEqual(payload["detail"], LOCK_MESSAGE)
         self.assertEqual(payload["code"], "too_many_requests")
         self.assertEqual(payload["wait"], int(blocked["X-RateLimit-Reset"]))
 
-    def test_api_token_login_is_not_affected(self):
+    def test_api_token_login_locks_after_five_failures(self):
         client = APIClient()
-        for _ in range(6):
+        for _ in range(4):
             response = client.post(
                 "/api/token/",
                 {"username": "nobody", "password": "nobody"},
                 format="json",
             )
-            self.assertNotEqual(response.status_code, 429)
+            self.assertEqual(response.status_code, 400)
+
+        blocked = client.post(
+            "/api/token/",
+            {"username": "nobody", "password": "nobody"},
+            format="json",
+        )
+        self.assertEqual(blocked.status_code, 429)
+        payload = blocked.json()
+        self.assertEqual(payload["error"], LOCK_MESSAGE)
+        self.assertEqual(payload["wait"], int(blocked["Retry-After"]))
+        self.assertEqual(blocked["X-RateLimit-Limit"], "5")
+        self.assertEqual(blocked["X-RateLimit-Remaining"], "0")
+
+        still_blocked = client.post(
+            "/api/login/",
+            {"username": "staffadmin", "password": "StaffPass123!"},
+            format="json",
+        )
+        self.assertEqual(still_blocked.status_code, 429)
+        self.assertEqual(still_blocked.json()["error"], LOCK_MESSAGE)

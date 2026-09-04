@@ -1,4 +1,5 @@
-"""قفل دخول لوحة Django Admin بعد خمس محاولات فاشلة — عبر الـ cache."""
+"""قفل دخول لوحة الإدارة وواجهة الـ API بعد خمس محاولات فاشلة — عبر الـ cache."""
+import json
 import time
 
 from django.conf import settings
@@ -8,6 +9,13 @@ LIMIT = 5
 LOCKOUT_SECONDS = 120
 FAIL_TTL = 60 * 60 * 24
 LOCK_MESSAGE = "تم تجاوز عدد المحاولات المسموح بها (5 محاولات). تم حظر المحاولة لمدة دقيقتين."
+
+API_LOGIN_PATHS = {
+    "/api/token/",
+    "/api/login/",
+    "/api/auth/login/",
+    "/api/auth/token/",
+}
 
 
 def client_ip(request):
@@ -22,27 +30,84 @@ def client_ip(request):
     return (request.META.get("REMOTE_ADDR") or "unknown")[:180]
 
 
+def login_payload(request):
+    data = {}
+    try:
+        parsed = getattr(request, "data", None)
+        if parsed is not None and hasattr(parsed, "get"):
+            data = parsed
+    except Exception:
+        data = {}
+    if not data:
+        post = getattr(request, "POST", None)
+        if post:
+            data = post
+    if not data:
+        try:
+            raw = getattr(request, "body", b"") or b""
+            if raw:
+                loaded = json.loads(raw.decode("utf-8"))
+                if isinstance(loaded, dict):
+                    data = loaded
+        except Exception:
+            data = {}
+    return data if hasattr(data, "get") else {}
+
+
 def cache_keys(request):
     """مفتاح واحد لكل IP حتى لا يصفر العداد بتغيير اسم المستخدم."""
     ident = client_ip(request) or "unknown"
-    username = str(request.POST.get("username") or "").strip().lower()[:80]
-    # نجمع IP مع اسم المستخدم للتتبع، والقفل يُحسب على الـ IP حتى تتراكم الأسماء الخاطئة
+    payload = login_payload(request)
+    username = str(
+        payload.get("username")
+        or payload.get("userName")
+        or payload.get("name")
+        or ""
+    ).strip().lower()[:80]
     ip_key = ident
     return {
-        "fails": f"admin_login:fails:{ip_key}",
-        "lock": f"admin_login:lock:{ip_key}",
-        "combo": f"admin_login:combo:{ip_key}:{username or '-'}",
+        "fails": f"login_lock:fails:{ip_key}",
+        "lock": f"login_lock:lock:{ip_key}",
+        "combo": f"login_lock:combo:{ip_key}:{username or '-'}",
     }
+
+
+def _normalize_path(path):
+    if not path:
+        return "/"
+    return path if path.endswith("/") else path + "/"
 
 
 def is_admin_login_path(request):
     """مسار دخول لوحة الإدارة الفعلي (ADMIN_URL/login/) بما فيه /admin/login/."""
     admin_prefix = "/" + str(getattr(settings, "ADMIN_URL", "admin/")).lstrip("/")
     login_path = admin_prefix.rstrip("/") + "/login/"
-    path = request.path if request.path.endswith("/") else request.path + "/"
+    path = _normalize_path(request.path)
     if path == login_path:
         return True
     return path.rstrip("/") == "/admin/login"
+
+
+def is_api_login_path(request):
+    return _normalize_path(request.path) in API_LOGIN_PATHS
+
+
+def is_special_number_only(request):
+    payload = login_payload(request)
+    special = str(
+        payload.get("special_number")
+        or payload.get("specialNumber")
+        or payload.get("special")
+        or ""
+    ).strip()
+    username = str(
+        payload.get("username")
+        or payload.get("userName")
+        or payload.get("name")
+        or ""
+    ).strip()
+    password = str(payload.get("password") or payload.get("Password") or "").strip()
+    return bool(special) and not username and not password
 
 
 def current_state(request):
@@ -98,4 +163,19 @@ def rate_limit_headers(remaining, wait=0):
         "X-RateLimit-Limit": str(LIMIT),
         "X-RateLimit-Remaining": str(max(int(remaining), 0)),
         "X-RateLimit-Reset": str(max(int(wait or 0), 0)),
+    }
+
+
+def lock_json_payload(wait):
+    wait = max(int(wait or LOCKOUT_SECONDS), 1)
+    return {
+        "error": LOCK_MESSAGE,
+        "detail": LOCK_MESSAGE,
+        "message": LOCK_MESSAGE,
+        "non_field_errors": [LOCK_MESSAGE],
+        "success": False,
+        "code": "too_many_requests",
+        "wait": wait,
+        "retry_after": wait,
+        "locked": True,
     }

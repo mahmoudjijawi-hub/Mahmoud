@@ -127,8 +127,8 @@ class SingleManagerSessionMiddleware:
 
 class AdminLoginLockoutMiddleware:
     """
-    قفل POST لمسار دخول لوحة الإدارة بعد 5 محاولات فاشلة.
-    العداد تراكمي في الـ cache، ويُصفَّر عند نجاح الدخول أو انتهاء الحظر دقيقتين.
+    قفل POST لدخول لوحة الإدارة ومسار توكن الواجهة بعد 5 محاولات فاشلة.
+    العداد في الـ cache لكل IP (مع تخزين IP/اسم المستخدم)، ويُصفَّر عند النجاح أو بعد دقيقتين.
     """
 
     def __init__(self, get_response):
@@ -138,18 +138,35 @@ class AdminLoginLockoutMiddleware:
         from core.admin_login_limit import (
             current_state,
             is_admin_login_path,
+            is_api_login_path,
+            is_special_number_only,
             rate_limit_headers,
             register_failure,
             register_success,
         )
 
-        if not is_admin_login_path(request):
-            return self.get_response(request)
+        if is_admin_login_path(request):
+            return self._handle(request, json_only=False)
+
+        if is_api_login_path(request) and request.method == "POST" and not is_special_number_only(
+            request
+        ):
+            return self._handle(request, json_only=True)
+
+        return self.get_response(request)
+
+    def _handle(self, request, json_only):
+        from core.admin_login_limit import (
+            current_state,
+            rate_limit_headers,
+            register_failure,
+            register_success,
+        )
 
         if request.method == "POST":
             blocked, wait, remaining = current_state(request)
             if blocked:
-                return _admin_lock_response(request, wait)
+                return _login_lock_response(request, wait, json_only=json_only)
 
         response = self.get_response(request)
         if request.method != "POST":
@@ -158,44 +175,73 @@ class AdminLoginLockoutMiddleware:
                 response[key] = value
             return response
 
-        if response.status_code in (301, 302, 303):
+        if response.status_code in (301, 302, 303) or _response_issued_token(response):
             register_success(request)
             for key, value in rate_limit_headers(5, 0).items():
                 response[key] = value
             return response
 
+        if _is_special_number_ok(response):
+            return response
+
         blocked, wait, remaining = register_failure(request)
         if blocked:
-            return _admin_lock_response(request, wait)
+            return _login_lock_response(request, wait, json_only=json_only)
         for key, value in rate_limit_headers(remaining, 0).items():
             response[key] = value
         return response
 
 
-def _admin_lock_response(request, wait):
+def _response_payload(response):
+    data = getattr(response, "data", None)
+    if isinstance(data, dict):
+        return data
+    try:
+        import json
+
+        loaded = json.loads(response.content.decode("utf-8") or "{}")
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        return {}
+
+
+def _response_issued_token(response):
+    if getattr(response, "status_code", None) != 200:
+        return False
+    data = _response_payload(response)
+    return bool(data.get("access") or data.get("token") or data.get("accessToken"))
+
+
+def _is_special_number_ok(response):
+    if getattr(response, "status_code", None) != 200:
+        return False
+    data = _response_payload(response)
+    return bool(data.get("requires_password")) and not (
+        data.get("access") or data.get("token") or data.get("accessToken")
+    )
+
+
+def _login_lock_response(request, wait, json_only=False):
     from django.contrib import admin
     from django.contrib.admin.forms import AdminAuthenticationForm
     from django.http import JsonResponse
     from django.template.response import TemplateResponse
 
-    from core.admin_login_limit import LOCK_MESSAGE, rate_limit_headers
+    from core.admin_login_limit import LOCK_MESSAGE, lock_json_payload, rate_limit_headers
 
     wait = max(int(wait or 120), 1)
     accept = (request.META.get("HTTP_ACCEPT") or "").lower()
     first_accept = accept.split(",")[0]
-    wants_json = "application/json" in first_accept or request.content_type == "application/json"
+    wants_json = (
+        json_only
+        or "application/json" in first_accept
+        or request.content_type == "application/json"
+    )
     if wants_json:
         response = JsonResponse(
-            {
-                "success": False,
-                "detail": LOCK_MESSAGE,
-                "error": LOCK_MESSAGE,
-                "message": LOCK_MESSAGE,
-                "non_field_errors": [LOCK_MESSAGE],
-                "code": "too_many_requests",
-                "wait": wait,
-            },
+            lock_json_payload(wait),
             status=429,
+            json_dumps_params={"ensure_ascii": False},
         )
     else:
         form = AdminAuthenticationForm(request, data=request.POST or None)
