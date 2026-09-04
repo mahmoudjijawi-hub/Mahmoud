@@ -1,5 +1,7 @@
 """قفل دخول لوحة الإدارة وواجهة الـ API بعد خمس محاولات فاشلة — عبر الـ cache."""
+import hashlib
 import json
+import re
 import time
 
 from django.conf import settings
@@ -54,8 +56,15 @@ def login_payload(request):
     return data if hasattr(data, "get") else {}
 
 
+def _safe_cache_part(value):
+    text = str(value or "unknown")
+    ascii_ok = re.sub(r"[^A-Za-z0-9._-]", "_", text)[:80]
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    return f"{ascii_ok}:{digest}"
+
+
 def cache_keys(request):
-    """مفتاح واحد لكل IP حتى لا يصفر العداد بتغيير اسم المستخدم."""
+    """مفتاح لكل IP حتى لا يصفر العداد بتغيير اسم المستخدم، مع تخزين IP/اسم المستخدم."""
     ident = client_ip(request) or "unknown"
     payload = login_payload(request)
     username = str(
@@ -64,11 +73,12 @@ def cache_keys(request):
         or payload.get("name")
         or ""
     ).strip().lower()[:80]
-    ip_key = ident
+    ip_key = _safe_cache_part(ident)
+    user_key = _safe_cache_part(username or "-")
     return {
         "fails": f"login_lock:fails:{ip_key}",
         "lock": f"login_lock:lock:{ip_key}",
-        "combo": f"login_lock:combo:{ip_key}:{username or '-'}",
+        "combo": f"login_lock:combo:{ip_key}:{user_key}",
     }
 
 
