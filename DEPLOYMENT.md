@@ -13,10 +13,11 @@
 3. نسخ `.env.example` إلى `.env` وتعبئة قيم هذا المعهد: `SECRET_KEY`، بيانات PostgreSQL، `ALLOWED_HOSTS`، `ADMIN_URL` العشوائي، `ADMIN_SPECIAL_NUMBER`، `CORS_ALLOWED_ORIGINS`، و`SESSION_COOKIE_DOMAIN` إن لزم.
 4. إنشاء قاعدة بيانات PostgreSQL فارغة خاصة بهذا المعهد.
 5. `python manage.py migrate`
-6. `python manage.py seed_manager`
-7. `python manage.py createsuperuser` لحساب Django Admin الخاص بهذه النشرة (لا يُخزَّن في الكود).
-8. `python manage.py collectstatic --noinput`
-9. تشغيل التطبيق بـ gunicorn ثم nginx، مع تقييد مسار الإدارة بعنوان IP على مستوى nginx إن أمكن.
+6. `python manage.py createcachetable` (ينشئ جدول `django_cache` لقفل دخول المدير المشترك بين عمال gunicorn؛ الهجرة `core.0002` تنشئه أيضاً)
+7. `python manage.py seed_manager`
+8. `python manage.py createsuperuser` لحساب Django Admin الخاص بهذه النشرة (لا يُخزَّن في الكود).
+9. `python manage.py collectstatic --noinput`
+10. تشغيل التطبيق بـ gunicorn ثم nginx، مع تقييد مسار الإدارة بعنوان IP على مستوى nginx إن أمكن.
 
 مثال تشغيل gunicorn:
 

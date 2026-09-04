@@ -127,33 +127,30 @@ class SingleManagerSessionMiddleware:
 
 class AdminLoginLockoutMiddleware:
     """
-    قفل POST لدخول لوحة الإدارة ومسار توكن الواجهة بعد 5 محاولات فاشلة.
-    العداد في الـ cache لكل IP (مع تخزين IP/اسم المستخدم)، ويُصفَّر عند النجاح أو بعد دقيقتين.
+    قفل POST لدخول المدير (اسم مستخدم + كلمة مرور) بعد 5 محاولات فاشلة.
+    العداد في DatabaseCache لكل IP و/أو اسم مستخدم — مشترك بين عمال Render.
+    دخول الطالب/الأستاذ بالرقم المميز مستثنى بالكامل. لا استثناء لأي حساب مدير.
     """
 
     def __init__(self, get_response):
         self.get_response = get_response
+        from core.admin_login_limit import ensure_cache_table
+
+        ensure_cache_table()
 
     def __call__(self, request):
         from core.admin_login_limit import (
-            current_state,
             is_admin_login_path,
-            is_api_login_path,
-            is_special_number_only,
-            rate_limit_headers,
-            register_failure,
-            register_success,
+            is_admin_password_login,
         )
 
-        if is_admin_login_path(request):
-            return self._handle(request, json_only=False)
-
-        if is_api_login_path(request) and request.method == "POST" and not is_special_number_only(
-            request
+        if not is_admin_password_login(request) and not (
+            is_admin_login_path(request) and request.method != "POST"
         ):
-            return self._handle(request, json_only=True)
+            return self.get_response(request)
 
-        return self.get_response(request)
+        json_only = not is_admin_login_path(request)
+        return self._handle(request, json_only=json_only)
 
     def _handle(self, request, json_only):
         from core.admin_login_limit import (
@@ -179,9 +176,6 @@ class AdminLoginLockoutMiddleware:
             register_success(request)
             for key, value in rate_limit_headers(5, 0).items():
                 response[key] = value
-            return response
-
-        if _is_special_number_ok(response):
             return response
 
         blocked, wait, remaining = register_failure(request)
@@ -212,24 +206,20 @@ def _response_issued_token(response):
     return bool(data.get("access") or data.get("token") or data.get("accessToken"))
 
 
-def _is_special_number_ok(response):
-    if getattr(response, "status_code", None) != 200:
-        return False
-    data = _response_payload(response)
-    return bool(data.get("requires_password")) and not (
-        data.get("access") or data.get("token") or data.get("accessToken")
-    )
-
-
 def _login_lock_response(request, wait, json_only=False):
     from django.contrib import admin
     from django.contrib.admin.forms import AdminAuthenticationForm
     from django.http import JsonResponse
     from django.template.response import TemplateResponse
 
-    from core.admin_login_limit import LOCK_MESSAGE, lock_json_payload, rate_limit_headers
+    from core.admin_login_limit import (
+        LOCK_MESSAGE,
+        LOCKOUT_SECONDS,
+        lock_json_payload,
+        rate_limit_headers,
+    )
 
-    wait = max(int(wait or 120), 1)
+    wait = LOCKOUT_SECONDS
     accept = (request.META.get("HTTP_ACCEPT") or "").lower()
     first_accept = accept.split(",")[0]
     wants_json = (
@@ -255,7 +245,7 @@ def _login_lock_response(request, wait, json_only=False):
         }
         response = TemplateResponse(request, "admin/login.html", context, status=429)
         response.render()
-    response["Retry-After"] = str(wait)
-    for key, value in rate_limit_headers(0, wait).items():
+    response["Retry-After"] = str(LOCKOUT_SECONDS)
+    for key, value in rate_limit_headers(0, LOCKOUT_SECONDS).items():
         response[key] = value
     return response

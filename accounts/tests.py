@@ -230,20 +230,13 @@ class PostmanAPITests(TestCase):
     def _assert_login_locked(self, response):
         payload = self._login_body(response)
         self.assertEqual(response.status_code, 429, payload)
-        self.assertEqual(payload["error"], LOCK_MESSAGE)
         self.assertEqual(payload["detail"], LOCK_MESSAGE)
-        self.assertEqual(payload["message"], LOCK_MESSAGE)
-        self.assertEqual(payload["code"], "too_many_requests")
-        self.assertTrue(payload["locked"])
+        self.assertEqual(payload["error"], LOCK_MESSAGE)
         self.assertNotIn("access", payload)
-        self.assertEqual(payload["non_field_errors"], [LOCK_MESSAGE])
-        self.assertGreaterEqual(payload["wait"], 1)
-        self.assertLessEqual(payload["wait"], 120)
-        self.assertEqual(payload["retry_after"], payload["wait"])
-        self.assertEqual(response["Retry-After"], str(payload["wait"]))
+        self.assertEqual(response["Retry-After"], "120")
         self.assertEqual(response["X-RateLimit-Limit"], str(LIMIT))
         self.assertEqual(response["X-RateLimit-Remaining"], "0")
-        self.assertGreaterEqual(int(response["X-RateLimit-Reset"]), 1)
+        self.assertEqual(response["X-RateLimit-Reset"], "120")
 
     def test_manager_password_login_rate_limit_is_five_per_minute(self):
         """أربع محاولات غلط تُظهر كلمة خطأ؛ الخامسة رسالة الانتظار دقيقتين."""

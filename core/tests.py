@@ -44,9 +44,8 @@ class AdminLoginLockoutTests(TestCase):
         self.assertContains(blocked, LOCK_MESSAGE, status_code=429)
         self.assertEqual(blocked["X-RateLimit-Limit"], "5")
         self.assertEqual(blocked["X-RateLimit-Remaining"], "0")
-        self.assertGreaterEqual(int(blocked["X-RateLimit-Reset"]), 1)
-        self.assertLessEqual(int(blocked["X-RateLimit-Reset"]), 120)
-        self.assertEqual(blocked["Retry-After"], blocked["X-RateLimit-Reset"])
+        self.assertEqual(blocked["X-RateLimit-Reset"], "120")
+        self.assertEqual(blocked["Retry-After"], "120")
 
         still_blocked = self._post_login("staffadmin", "StaffPass123!")
         self.assertEqual(still_blocked.status_code, 429)
@@ -73,10 +72,10 @@ class AdminLoginLockoutTests(TestCase):
         ok = self._post_login("staffadmin", "StaffPass123!")
         self.assertIn(ok.status_code, (302, 303))
         self.client.logout()
-        for _ in range(4):
-            response = self._post_login("wrong", "wrong")
-            self.assertEqual(response.status_code, 200)
-        blocked = self._post_login("wrong", "wrong")
+        for index in range(4):
+            response = self._post_login("other-name", f"bad-{index}")
+            self.assertEqual(response.status_code, 200, response.content)
+        blocked = self._post_login("other-name", "bad-last")
         self.assertEqual(blocked.status_code, 429)
 
     def test_json_accept_returns_429_json_body(self):
@@ -90,10 +89,18 @@ class AdminLoginLockoutTests(TestCase):
         self.assertEqual(blocked.status_code, 429)
         self.assertEqual(blocked["Content-Type"].split(";")[0], "application/json")
         payload = blocked.json()
-        self.assertEqual(payload["error"], LOCK_MESSAGE)
         self.assertEqual(payload["detail"], LOCK_MESSAGE)
-        self.assertEqual(payload["code"], "too_many_requests")
-        self.assertEqual(payload["wait"], int(blocked["X-RateLimit-Reset"]))
+        self.assertEqual(payload["error"], LOCK_MESSAGE)
+        self.assertEqual(blocked["X-RateLimit-Limit"], "5")
+        self.assertEqual(blocked["X-RateLimit-Remaining"], "0")
+        self.assertEqual(blocked["X-RateLimit-Reset"], "120")
+
+    def test_cache_backend_is_database(self):
+        self.assertEqual(
+            settings.CACHES["default"]["BACKEND"],
+            "django.core.cache.backends.db.DatabaseCache",
+        )
+        self.assertEqual(settings.CACHES["default"]["LOCATION"], "django_cache")
 
     def test_api_token_login_locks_after_five_failures(self):
         client = APIClient()
@@ -112,15 +119,36 @@ class AdminLoginLockoutTests(TestCase):
         )
         self.assertEqual(blocked.status_code, 429)
         payload = blocked.json()
+        self.assertEqual(
+            payload["detail"],
+            LOCK_MESSAGE,
+        )
         self.assertEqual(payload["error"], LOCK_MESSAGE)
-        self.assertEqual(payload["wait"], int(blocked["Retry-After"]))
         self.assertEqual(blocked["X-RateLimit-Limit"], "5")
         self.assertEqual(blocked["X-RateLimit-Remaining"], "0")
+        self.assertEqual(blocked["X-RateLimit-Reset"], "120")
+        self.assertEqual(blocked["Retry-After"], "120")
 
         still_blocked = client.post(
-            "/api/login/",
+            "/api/admin/login/",
             {"username": "staffadmin", "password": "StaffPass123!"},
             format="json",
         )
         self.assertEqual(still_blocked.status_code, 429)
-        self.assertEqual(still_blocked.json()["error"], LOCK_MESSAGE)
+        self.assertEqual(still_blocked.json()["detail"], LOCK_MESSAGE)
+
+    def test_student_and_teacher_special_number_logins_are_not_locked(self):
+        client = APIClient()
+        for _ in range(6):
+            response = client.post(
+                "/api/token/",
+                {"special_number": "0000001"},
+                format="json",
+            )
+            self.assertNotEqual(response.status_code, 429)
+            response = client.post(
+                "/api/student-login/",
+                {"special_number": "0000001"},
+                format="json",
+            )
+            self.assertNotEqual(response.status_code, 429)

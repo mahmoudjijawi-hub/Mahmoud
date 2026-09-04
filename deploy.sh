@@ -17,6 +17,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 # تطبيق الهجرات على قاعدة هذا المعهد فقط
 python manage.py migrate
+# جدول قفل الدخول المشترك بين عمال gunicorn (DatabaseCache)
+python manage.py createcachetable
 # مزامنة كلمة مرور المدير من .env (ضروري حتى ينجح دخول الفرونت)
 python manage.py seed_manager
 # تجميع الملفات الثابتة
