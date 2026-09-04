@@ -155,35 +155,48 @@ class AdminLoginLockoutMiddleware:
     def _handle(self, request, json_only):
         from core.admin_login_limit import (
             current_state,
+            ensure_cache_table,
             rate_limit_headers,
             register_failure,
             register_success,
         )
 
         if request.method == "POST":
-            blocked, wait, remaining = current_state(request)
+            try:
+                blocked, wait, remaining = current_state(request)
+            except Exception:
+                ensure_cache_table()
+                blocked, wait, remaining = False, 0, 5
             if blocked:
                 return _login_lock_response(request, wait, json_only=json_only)
 
         response = self.get_response(request)
         if request.method != "POST":
-            blocked, wait, remaining = current_state(request)
+            try:
+                blocked, wait, remaining = current_state(request)
+            except Exception:
+                ensure_cache_table()
+                blocked, wait, remaining = False, 0, 5
             for key, value in rate_limit_headers(remaining, wait).items():
                 response[key] = value
             return response
 
-        if response.status_code in (301, 302, 303) or _response_issued_token(response):
-            register_success(request)
-            for key, value in rate_limit_headers(5, 0).items():
+        try:
+            if response.status_code in (301, 302, 303) or _response_issued_token(response):
+                register_success(request)
+                for key, value in rate_limit_headers(5, 0).items():
+                    response[key] = value
+                return response
+
+            blocked, wait, remaining = register_failure(request)
+            if blocked:
+                return _login_lock_response(request, wait, json_only=json_only)
+            for key, value in rate_limit_headers(remaining, 0).items():
                 response[key] = value
             return response
-
-        blocked, wait, remaining = register_failure(request)
-        if blocked:
-            return _login_lock_response(request, wait, json_only=json_only)
-        for key, value in rate_limit_headers(remaining, 0).items():
-            response[key] = value
-        return response
+        except Exception:
+            ensure_cache_table()
+            return response
 
 
 def _response_payload(response):

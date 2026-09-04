@@ -94,4 +94,8 @@ python manage.py test
 
 ## النشر
 
-انظر `DEPLOYMENT.md` وسكربت `deploy.sh` (gunicorn بدون Docker).
+على Render:
+- Build Command: `bash build.sh`
+- Start Command: `bash start.sh`
+
+هذان الأمران يشغّلان `migrate` و`createcachetable` تلقائياً. انظر أيضاً `DEPLOYMENT.md` و`deploy.sh`.

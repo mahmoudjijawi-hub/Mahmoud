@@ -25,7 +25,9 @@ class PostmanAPITests(TestCase):
         # تفريغ الذاكرة المؤقتة حتى لا يتجمّع حد الـ throttling بين الاختبارات
         cache.clear()
         from accounts.models import ManagerLoginGuard
+        import core.admin_login_limit as lockmod
 
+        lockmod._prefer_db = False
         ManagerLoginGuard.objects.all().delete()
         # اشتراك ساري حتى لا يقطع الوسطاء الاختبارات
         Subscription.objects.create(expiry_date=date.today() + timedelta(days=365), is_active=True)

@@ -19,6 +19,29 @@
 9. `python manage.py collectstatic --noinput`
 10. تشغيل التطبيق بـ gunicorn ثم nginx، مع تقييد مسار الإدارة بعنوان IP على مستوى nginx إن أمكن.
 
+## Render
+
+Build Command:
+
+```bash
+bash build.sh
+```
+
+Start Command:
+
+```bash
+bash start.sh
+```
+
+`build.sh` و`entrypoint.sh` يشغّلان تلقائياً:
+
+```bash
+python manage.py migrate --noinput
+python manage.py createcachetable
+```
+
+حتى يُنشأ جدول `django_cache` على Postgres. إن بقي Start Command على `gunicorn` فقط، `config/wsgi.py` يشغّل الأمرين عند إقلاع العملية.
+
 مثال تشغيل gunicorn:
 
 ```bash
