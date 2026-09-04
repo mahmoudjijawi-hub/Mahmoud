@@ -123,3 +123,93 @@ class SingleManagerSessionMiddleware:
             if current_key and current_key != user.last_session_key:
                 logout(request)
         return self.get_response(request)
+
+
+class AdminLoginLockoutMiddleware:
+    """
+    قفل POST لمسار دخول لوحة الإدارة بعد 5 محاولات فاشلة.
+    العداد تراكمي في الـ cache، ويُصفَّر عند نجاح الدخول أو انتهاء الحظر دقيقتين.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from core.admin_login_limit import (
+            current_state,
+            is_admin_login_path,
+            rate_limit_headers,
+            register_failure,
+            register_success,
+        )
+
+        if not is_admin_login_path(request):
+            return self.get_response(request)
+
+        if request.method == "POST":
+            blocked, wait, remaining = current_state(request)
+            if blocked:
+                return _admin_lock_response(request, wait)
+
+        response = self.get_response(request)
+        if request.method != "POST":
+            blocked, wait, remaining = current_state(request)
+            for key, value in rate_limit_headers(remaining, wait).items():
+                response[key] = value
+            return response
+
+        if response.status_code in (301, 302, 303):
+            register_success(request)
+            for key, value in rate_limit_headers(5, 0).items():
+                response[key] = value
+            return response
+
+        blocked, wait, remaining = register_failure(request)
+        if blocked:
+            return _admin_lock_response(request, wait)
+        for key, value in rate_limit_headers(remaining, 0).items():
+            response[key] = value
+        return response
+
+
+def _admin_lock_response(request, wait):
+    from django.contrib import admin
+    from django.contrib.admin.forms import AdminAuthenticationForm
+    from django.http import JsonResponse
+    from django.template.response import TemplateResponse
+
+    from core.admin_login_limit import LOCK_MESSAGE, rate_limit_headers
+
+    wait = max(int(wait or 120), 1)
+    accept = (request.META.get("HTTP_ACCEPT") or "").lower()
+    first_accept = accept.split(",")[0]
+    wants_json = "application/json" in first_accept or request.content_type == "application/json"
+    if wants_json:
+        response = JsonResponse(
+            {
+                "success": False,
+                "detail": LOCK_MESSAGE,
+                "error": LOCK_MESSAGE,
+                "message": LOCK_MESSAGE,
+                "non_field_errors": [LOCK_MESSAGE],
+                "code": "too_many_requests",
+                "wait": wait,
+            },
+            status=429,
+        )
+    else:
+        form = AdminAuthenticationForm(request, data=request.POST or None)
+        form.add_error(None, LOCK_MESSAGE)
+        context = {
+            **admin.site.each_context(request),
+            "title": "تسجيل الدخول",
+            "app_path": request.get_full_path(),
+            "form": form,
+            "username": request.POST.get("username", "") if request.method == "POST" else "",
+        }
+        response = TemplateResponse(request, "admin/login.html", context, status=429)
+        response.render()
+    response["Retry-After"] = str(wait)
+    for key, value in rate_limit_headers(0, wait).items():
+        response[key] = value
+    return response

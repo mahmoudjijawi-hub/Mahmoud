@@ -94,6 +94,8 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     # ربط request.user
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # قفل دخول لوحة الإدارة بعد 5 محاولات فاشلة
+    "core.middleware.AdminLoginLockoutMiddleware",
     # فحص اشتراك المعهد قبل أي مسار محمي
     "core.middleware.SubscriptionMiddleware",
     # جلسة مدير واحدة نشطة + مهلة الخمول تُدار بإعدادات الجلسة
@@ -248,6 +250,19 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # مسار لوحة الإدارة العشوائي من البيئة (بدون / في البداية أو النهاية)
 ADMIN_URL = env("ADMIN_URL", default="secret-admin").strip("/") + "/"
+
+# ذاكرة مؤقتة لقفل دخول لوحة الإدارة — LocMem افتراضياً، أو Redis/Database عبر البيئة
+CACHES = {
+    "default": {
+        "BACKEND": env(
+            "CACHE_BACKEND",
+            default="django.core.cache.backends.locmem.LocMemCache",
+        ),
+        "LOCATION": env("CACHE_LOCATION", default="admin-login-lockout"),
+        "TIMEOUT": 86400,
+        "OPTIONS": {"MAX_ENTRIES": 10000},
+    }
+}
 
 # أصول CORS المسموحة فقط — ممنوع CORS_ALLOW_ALL_ORIGINS في الإنتاج
 _DEFAULT_CORS_ORIGINS = (
