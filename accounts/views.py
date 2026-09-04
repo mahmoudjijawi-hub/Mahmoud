@@ -5,14 +5,10 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.exceptions import Throttled
 
-from accounts.login_limit import LOCK_MESSAGE, clear_failures
 from accounts.models import Manager
 from accounts.serializers import CustomTokenObtainPairSerializer, ManagerSerializer
 from core.permissions import IsManager
-from core.throttles import (
-    SpecialNumberRateThrottle,
-    apply_manager_login_rate_limit_headers,
-)
+from core.throttles import SpecialNumberRateThrottle
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
@@ -30,37 +26,16 @@ class CustomTokenObtainPairView(TokenObtainPairView):
             ensure_admin_credentials()
         except Exception:
             pass
-        from core.throttles import _is_special_number_attempt
-
-        password_page = not _is_special_number_attempt(request)
-        response = super().post(request, *args, **kwargs)
-        if password_page and _login_issued_token(response):
-            try:
-                _blocked, _wait, info = clear_failures()
-                request._manager_login_rate_limit = info
-            except Exception:
-                pass
-        return response
-
-    def finalize_response(self, request, response, *args, **kwargs):
-        response = super().finalize_response(request, response, *args, **kwargs)
-        return apply_manager_login_rate_limit_headers(request, response)
+        return super().post(request, *args, **kwargs)
 
     def throttled(self, request, wait):
+        from core.admin_login_limit import LOCK_MESSAGE
+
         seconds = int(wait) if wait else 120
         raise Throttled(
             wait=seconds,
             detail=LOCK_MESSAGE,
         )
-
-
-def _login_issued_token(response):
-    if getattr(response, "status_code", None) != 200:
-        return False
-    data = getattr(response, "data", None) or {}
-    if not hasattr(data, "get"):
-        return False
-    return bool(data.get("access") or data.get("token") or data.get("accessToken"))
 
 
 class ManagerViewSet(viewsets.ModelViewSet):

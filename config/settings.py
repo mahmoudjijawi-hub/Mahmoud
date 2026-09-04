@@ -94,7 +94,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     # ربط request.user
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    # قفل دخول لوحة الإدارة بعد 5 محاولات فاشلة
+    # قفل دخول لوحة الإدارة وواجهة الـ API بعد 5 محاولات فاشلة
     "core.middleware.AdminLoginLockoutMiddleware",
     # فحص اشتراك المعهد قبل أي مسار محمي
     "core.middleware.SubscriptionMiddleware",

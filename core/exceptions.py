@@ -31,7 +31,13 @@ def api_exception_handler(exc, context):
             or 120
         )
         request = context.get("request") if context else None
-        message = "لقد قمت بعدة محاولات كثيرة، يرجى المحاولة مرة أخرى بعد دقيقتين."
+        message = "تم تجاوز عدد المحاولات المسموح بها (5 محاولات). تم حظر المحاولة لمدة دقيقتين."
+        try:
+            from core.admin_login_limit import LOCK_MESSAGE
+
+            message = LOCK_MESSAGE
+        except Exception:
+            pass
         response.data = {
             "success": False,
             "detail": message,
@@ -40,9 +46,10 @@ def api_exception_handler(exc, context):
             "non_field_errors": [message],
             "code": "too_many_requests",
             "wait": wait,
+            "retry_after": wait,
             "locked": True,
         }
-        response.status_code = status.HTTP_400_BAD_REQUEST
+        response.status_code = status.HTTP_429_TOO_MANY_REQUESTS
         response["Retry-After"] = str(wait)
         if request is not None:
             from core.throttles import apply_manager_login_rate_limit_headers
